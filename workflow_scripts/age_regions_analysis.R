@@ -673,24 +673,42 @@ sex %>%
 summary(lm(f_beta ~ m_beta, data = sex))
 
 #Plot comparison of male/female estimates with paths between paired regions
-sex_paired<- sex %>%
-  filter(!(beta_female < 0 & beta_male > 0)) %>%
-  filter(!(beta_female > 0 & beta_male < 0))
-
 sex<- sex %>%
   mutate(abs_beta_f = abs(beta_female),
          abs_beta_m = abs(beta_male))
 
-signif<- sex %>%
-  filter(fdr_female < 0.05 | fdr_male < 0.05)
+t_vals<- data.frame(matrix(nrow=0, ncol=13))
+colnames(t_vals)<- c("estimate", "statistic", "p.value", "parameter", "conf.low",
+                     "conf.high", "method", "alternative", "Cohens_d", "CI", "CI_low", 
+                     "CI_high", "diff_threshold")
 
-t.test(signif$abs_beta_f, signif$abs_beta_m, paired = T)
-cohens_d(signif$abs_beta_f, signif$abs_beta_m, paired = T)
+for (i in seq(0, 0.10, by=0.01)) {
+  
+  df<- sex %>%
+    filter(fdr_female < 0.05 & fdr_male < 0.05 & diff > i)
+  
+  df2<- broom::tidy(t.test(df$abs_beta_f, df$abs_beta_m, paired = T))
+  
+  df3<- cohens_d(df$abs_beta_f, df$abs_beta_m, paired = T)
+  
+  dd<- cbind(df2, df3)
+  
+  dd$diff_threshold<- i
+  
+  t_vals<- rbind(t_vals, dd)
+  
+}
 
-sex_paired<- sex %>%
-  mutate(diff = abs(beta_female) - abs(beta_male)) %>%
-  pivot_longer(cols=c(beta_female, beta_male), names_to = "beta_sex", values_to = "beta") %>%
-  mutate(abs_beta = abs(beta))
+t_vals %>%
+  ggplot(aes(diff_threshold, estimate, colour = p.value < 0.05, label = parameter)) +
+  geom_point() +
+  geom_path() +
+  geom_errorbar(ymin = t_vals$conf.low, ymax = t_vals$conf.high) +
+  geom_text(vjust = -5) +
+  ylim(-0.05, 0.1) +
+  scale_x_continuous(breaks = seq(0, 0.1, by=0.01)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_classic()
 
 df %>% 
   filter(fdr_female < 0.05 | fdr_male < 0.05) %>%
