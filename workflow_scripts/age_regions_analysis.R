@@ -74,10 +74,28 @@ av_meth %>%
   ggplot(aes(age, perc_meth)) +
   geom_point(aes(colour=sex)) +
   geom_smooth(aes(colour=sex),method = "lm") +
+  scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
   ylab("Average % Methylation") +
   xlab("Age") +
   theme_classic(base_size = 24)
 
+av_meth_diff<- av_meth %>% 
+  group_by(monkey_id) %>%
+  mutate(diff = max(perc_meth) - min(perc_meth)) %>%
+  dplyr::select(c(monkey_id, sex, diff)) %>%
+  distinct()
+
+av_meth_diff %>%
+  ggplot(aes(sex, diff)) +
+  geom_dotplot(aes(fill = sex), binaxis = "y", stackdir = "center", dotsize = 0.7) +
+  geom_boxplot(width=0.05) +
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  ylab("%Methylation Change") +
+  xlab("Sex") +
+  theme_classic(base_size = 24)
+
+t.test(diff ~ sex, data = av_meth_diff)
 
 #Import regions info
 regions<- readRDS("regions_full")
