@@ -585,10 +585,15 @@ nested_pqlseq<- model
 
 nested_pqlseq$chromStart<- as.double(nested_pqlseq$chromStart)
 
+nested_pqlseq<- nested_pqlseq %>%
+  mutate(abs_beta = abs(beta)) %>%
+  relocate(abs_beta, .after = beta)
+
 nested_pqlseq %>%
-  filter(fdr < 0.05) %>%
-  ggplot(aes(beta, fill = sex)) +
-  geom_histogram(bins = 100, position = "identity", alpha = 0.5)
+  filter(fdr < 0.05 & abs_beta < 0.2) %>%
+  ggplot(aes(abs_beta, fill = sex)) +
+  geom_density(alpha = 0.5) +
+  theme_classic(base_size=24)
 
 #Plot nested pqlseq model-------------------------------------------------------
 nested_pqlseq %>%
@@ -637,10 +642,10 @@ nested_pqlseq %>%
   scale_colour_manual(values = c("darkolivegreen", "darkmagenta")) +
   theme_classic(base_size = 32)
 
-#Generate paired estimates df
+#Generate and plot paired nested estimates--------------------------------------
 sex<- nested_pqlseq %>%
-  dplyr::select(c(outcome, chrom, beta, fdr, sex)) %>%
-  pivot_wider(names_from = sex, values_from = c(beta, fdr), names_sep = "_") %>%
+  dplyr::select(c(outcome, chrom, beta, abs_beta, fdr, sex)) %>%
+  pivot_wider(names_from = sex, values_from = c(beta, abs_beta, fdr), names_sep = "_") %>%
   mutate(abs_diff = abs(beta_female - beta_male),
          diff = beta_female - beta_male)
 
@@ -673,10 +678,6 @@ sex %>%
 summary(lm(f_beta ~ m_beta, data = sex))
 
 #Plot comparison of male/female estimates with paths between paired regions
-sex<- sex %>%
-  mutate(abs_beta_f = abs(beta_female),
-         abs_beta_m = abs(beta_male))
-
 t_vals<- data.frame(matrix(nrow=0, ncol=13))
 colnames(t_vals)<- c("estimate", "statistic", "p.value", "parameter", "conf.low",
                      "conf.high", "method", "alternative", "Cohens_d", "CI", "CI_low", 
@@ -699,25 +700,58 @@ for (i in seq(0, 0.10, by=0.01)) {
   
 }
 
+t_vals$fdr<- "0.05"
+
+t_vals2<- data.frame(matrix(nrow=0, ncol=13))
+colnames(t_vals2)<- c("estimate", "statistic", "p.value", "parameter", "conf.low",
+                     "conf.high", "method", "alternative", "Cohens_d", "CI", "CI_low", 
+                     "CI_high", "diff_threshold")
+
+for (i in seq(0, 0.10, by=0.01)) {
+  
+  df<- sex %>%
+    filter(fdr_female < 0.10 & fdr_male < 0.10 & diff > i)
+  
+  df2<- broom::tidy(t.test(df$abs_beta_f, df$abs_beta_m, paired = T))
+  
+  df3<- cohens_d(df$abs_beta_f, df$abs_beta_m, paired = T)
+  
+  dd<- cbind(df2, df3)
+  
+  dd$diff_threshold<- i
+  
+  t_vals2<- rbind(t_vals2, dd)
+
+}
+
+t_vals2$fdr<- "0.10"
+
+t_vals<- rbind(t_vals, t_vals2)
+
 t_vals %>%
-  ggplot(aes(diff_threshold, estimate, colour = p.value < 0.05, label = parameter)) +
-  geom_point() +
+  ggplot(aes(diff_threshold, estimate, colour = fdr)) +
+  geom_point(aes(shape = p.value < .05), size = 3) +
   geom_path() +
-  geom_errorbar(ymin = t_vals$conf.low, ymax = t_vals$conf.high) +
-  geom_text(vjust = -5) +
-  ylim(-0.05, 0.1) +
+  geom_errorbar(ymin = t_vals$conf.low, ymax = t_vals$conf.high, width = 0.001) +
+  scale_y_continuous(breaks = seq(-0.01, 0.1, by=0.01), limits = c(-0.01, 0.1)) +
   scale_x_continuous(breaks = seq(0, 0.1, by=0.01)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  theme_classic()
-
-df %>% 
-  filter(fdr_female < 0.05 | fdr_male < 0.05) %>%
-  ggplot(aes(abs_beta, fill=beta_sex)) +
-  geom_density(alpha = 0.5) +
+  ylab("Mean Difference (F - M)") +
   theme_classic(base_size = 24)
 
-df %>%
-  filter(fdr_female < 0.05 & fdr_male < 0.05 & abs(diff) > 0.05) %>%
+t_vals %>%
+  ggplot(aes(diff_threshold, parameter, colour = fdr)) +
+  geom_point() +
+  geom_path() +
+  #scale_y_continuous(breaks = seq(-0.01, 0.1, by=0.01), limits = c(-0.01, 0.1)) +
+  scale_x_continuous(breaks = seq(0, 0.1, by=0.01)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  ylab("# of Regions") +
+  theme_classic(base_size = 24)
+
+
+sex %>%
+  filter(fdr_female < 0.05 & fdr_male < 0.05 & abs_diff > 0.05) %>%
   ggplot(aes(beta_sex, abs_beta, group = outcome)) +
   geom_point(alpha = 0.7) +
   geom_path(alpha = 0.3) +
@@ -725,17 +759,6 @@ df %>%
   ylab("Abs. Beta") + xlab("") +
   scale_x_discrete(labels = c("Female", "Male")) +
   ggtitle("fdr_f < 0.05 & fdr_m < 0.05 & abs(diff) > 0.05")
-
-sex %>%
-  filter(fdr_female < 0.05 & fdr_male < 0.05 & abs_diff > 0.05) %>%
-  pivot_longer(cols=c(beta_female, beta_male), names_to = "sex", values_to = "beta") %>%
-  ggplot(aes(sex, beta, group = outcome, colour=diff<0)) +
-  geom_point(alpha = 0.7) +
-  geom_path(alpha = 0.3) +
-  theme_classic(base_size = 24) +
-  ylab("Beta") + xlab("") +
-  scale_x_discrete(labels = c("Female", "Male")) +
-  ggtitle("fdr_female < 0.05 & fdr_male < 0.05 & abs_diff > 0.05")
 
 ################################################################################
 ##### JOIN INTERSECT FILES WITH REGIONS FROM MODELS
