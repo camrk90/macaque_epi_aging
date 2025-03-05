@@ -50,6 +50,7 @@ regions_m<- lapply(names(regions_m), function(x){
   return(regions_m)
 })
 
+#Generate %methylation matrix (m/cov)
 ratio<- mapply('/', regions_m, regions_cov, SIMPLIFY = F)
 ratio<- do.call(rbind, ratio)
 ratio<- ratio[colnames(ratio) %in% long_data$lid_pid]
@@ -58,17 +59,18 @@ rownames(ratio)<- str_split_i(rownames(ratio), "\\.", 3)
 ratio$chrom<- rownames(ratio)
 ratio$chrom<- str_split_i(ratio$chrom, "\\_", 1)
 
-test<- colMeans(ratio)
-test<- as.vector(test)
-test<- cbind(test, colnames(ratio))
-test<- test %>%
+#Generate average %methylation across all regions for each individual
+av_meth<- colMeans(ratio)
+av_meth<- as.vector(av_meth)
+av_meth<- cbind(av_meth, colnames(ratio))
+av_meth<- av_meth %>%
   as.data.frame() %>%
   arrange(V2)
-test<- cbind(test, long_data$age_at_sampling, long_data$sex)
-colnames(test)<- c('perc_meth', 'lid_pid', 'age', 'sex')
-test$perc_meth<- as.numeric(test$perc_meth)
+av_meth<- cbind(av_meth, long_data$age_at_sampling, long_data$sex, long_data$monkey_id)
+colnames(av_meth)<- c('perc_meth', 'lid_pid', 'age', 'sex', "monkey_id")
+av_meth$perc_meth<- as.numeric(av_meth$perc_meth)
 
-test %>%
+av_meth %>%
   ggplot(aes(age, perc_meth)) +
   geom_point(aes(colour=sex)) +
   geom_smooth(aes(colour=sex),method = "lm") +
@@ -91,7 +93,7 @@ mm_genes=as.data.frame(mm_genes)
 ######################################
 #Mean age by sex----------------------------------------------------------------
 long_data %>% ggplot(aes(x=mean.age, fill = sex)) +
-  geom_histogram(alpha=0.7, position = 'dodge', bins=10, colour="black") +
+  geom_histogram(alpha=0.7, position = position_dodge(width = 1.5), bins=10, colour="black") +
   scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   scale_x_continuous(breaks = seq(0, 30, by=5)) +
   theme_classic(base_size = 32) +
@@ -99,7 +101,7 @@ long_data %>% ggplot(aes(x=mean.age, fill = sex)) +
 
 #N samples by sex---------------------------------------------------------------
 long_data %>% ggplot(aes(x=n, fill = sex)) +
-  geom_bar(alpha = 0.7, position = 'dodge', colour = "black") +
+  geom_bar(alpha = 0.7, position = position_dodge(width = 0.5), colour = "black") +
   scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   theme_classic(base_size = 32) +
   labs(y = "Count", x = "N")
@@ -107,12 +109,15 @@ long_data %>% ggplot(aes(x=n, fill = sex)) +
 #N samples per individual-------------------------------------------------------
 long_data %>%
   ggplot(aes(x=age_at_sampling, y=reorder(monkey_id, mean.age), colour=sex)) +
-  geom_path(linewidth = 2, alpha = 0.5) +
-  geom_borderline(size = 1.5, bordercolour="black") +
+  geom_path(linewidth = 1.5, alpha = 0.8) +
   geom_point(colour="black") +
   scale_x_continuous(breaks = seq(0, 30, by=2)) +
   scale_colour_manual(values = c("royalblue1", "orangered1"), name = "Sex") +
-  theme_classic()
+  ylab("Individual") +
+  xlab("Age") +
+  theme_classic(base_size = 24) +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
 
 #N pids-------------------------------------------------------------------------
 long_data %>%
