@@ -73,7 +73,8 @@ av_meth$perc_meth<- as.numeric(av_meth$perc_meth)
 av_meth %>%
   ggplot(aes(age, perc_meth)) +
   geom_point(aes(colour=sex)) +
-  geom_smooth(aes(colour=sex),method = "lm") +
+  geom_smooth(aes(colour=sex),method = "loess") +
+  geom_smooth(method = "loess", colour='black', linetype = "dashed", se = F) +
   scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   scale_x_continuous(breaks = seq(0, 30, by=5)) +
   ylab("Average % Methylation") +
@@ -203,8 +204,14 @@ pcs %>%
   geom_point() +
   theme_classic(base_size=24)
 
+pc_lm<- lm(PC1 ~ within.age + mean.age + sex + pid, data = pcs)
+predicted_pcs<- predict.lm(pc_lm)
+summary(pc_lm)
+
+pcs<- cbind(pcs, predicted_pcs)
+
 pcs %>%
-  ggplot(aes(within.age, PC1)) +
+  ggplot(aes(within.age, predicted_pcs)) +
   geom_point() +
   geom_smooth(method = "lm") +
   theme_classic(base_size = 24)
