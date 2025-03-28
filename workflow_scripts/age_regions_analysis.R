@@ -31,6 +31,21 @@ long_data %>%
   mutate(pid = as.factor(pid))
 long_data$pid<- reorder(long_data$pid, long_data$pid, FUN = length)
 
+length(unique(long_data$monkey_id))
+
+long_data %>%
+  distinct(monkey_id, .keep_all = T) %>%
+  ggplot(aes(individual_sex, fill = individual_sex)) +
+  geom_bar(colour="black", alpha = 0.8) + 
+  scale_fill_manual(values = c("royalblue1", "orangered1"), name = "Sex") +
+  geom_text(stat = "count", aes(label = after_stat(count)),
+            position = position_dodge(),
+            color = "black",
+            size = 8,
+            vjust = -0.2) +
+  ylim(0, 100) +
+  theme_classic(base_size = 24)
+
 #Generate %methylation matrix
 regions_cov<- readRDS("regions_cov_filtered")
 regions_cov<- regions_cov[1:21]
@@ -70,6 +85,16 @@ av_meth<- cbind(av_meth, long_data$age_at_sampling, long_data$sex, long_data$mon
 colnames(av_meth)<- c('perc_meth', 'lid_pid', 'age', 'sex', "monkey_id")
 av_meth$perc_meth<- as.numeric(av_meth$perc_meth)
 
+av_meth_sum<- av_meth %>%
+  group_by(monkey_id) %>%
+  summarise(meth = mean(perc_meth),
+            age = mean(age))
+df<- av_meth %>%
+  distinct(monkey_id, .keep_all = T) %>%
+  dplyr::select(sex)
+
+av_meth_sum<- cbind(av_meth_sum, df$sex)
+
 av_meth %>%
   ggplot(aes(age, perc_meth)) +
   geom_point(aes(colour=sex)) +
@@ -79,6 +104,17 @@ av_meth %>%
   scale_x_continuous(breaks = seq(0, 30, by=5)) +
   ylab("Average % Methylation") +
   xlab("Age") +
+  theme_classic(base_size = 24)
+
+av_meth_sum %>%
+  ggplot(aes(age, meth)) +
+  geom_point(aes(colour=df$sex)) +
+  geom_smooth(aes(colour=df$sex),method = "glm") +
+  geom_smooth(method = "glm", colour='black', linetype = "dashed", se = F) +
+  scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  ylab("Average % Methylation") +
+  xlab("Mean Age") +
   theme_classic(base_size = 24)
 
 av_meth_diff<- av_meth %>% 
@@ -279,12 +315,17 @@ age<- glm_model.t %>%
 ###      Import PQLseq Models      ###
 ######################################
 setwd('/scratch/ckelsey4/Cayo_meth/glmer_model_compare')
-#Import promoter pqlseq files---------------------------------------------------
-import_prom_pqlseq<- function(x){
+#Import additive pqlseq files---------------------------------------------------
+import_pqlseq<- function(x){
   
   #Generate list of file names
   file_list<- list.files(pattern = x)
-  file_order<- str_split_i(file_list, "_", 4)
+  if (grepl("age", x,  fixed = T) == T){
+    file_order<- str_split_i(file_list, "_", 5)
+  } else {
+    file_order<- str_split_i(file_list, "_", 4)
+  }
+  
   
   #Import glm models as list
   model_list<- lapply(file_list, readRDS)
@@ -294,19 +335,20 @@ import_prom_pqlseq<- function(x){
   
   #Bind model list to df and add rownames
   model<- do.call(rbind, model_list)
+  model$outcome<- str_split_i(model$outcome, "\\.", 3)
   model$outcome2<- model$outcome
-  model$outcome<- str_split_i(model$outcome, "\\.", 2)
-  rownames(model)<- model$region
   
   #Separate region coordinates into start and end, delete the chr col, and move region col to front
-  #model$outcome2<- model$outcome
+  model<- model %>% 
+    separate_wider_delim(outcome2, names=c("chrom", "chromStart", "chromEnd"), delim = "_") %>%
+    relocate(c(chrom, chromStart, chromEnd), .after = outcome)
+  
+  #Add length col and filter by length
   model<- model %>%
-    separate_wider_delim(outcome2, ".", names = c("chrom", "gene")) %>%
-    dplyr::select(-c(gene))
+    mutate(length = 1+(as.numeric(chromEnd) - as.numeric(chromStart))) %>%
+    relocate(length, .after=outcome)
   model<- model %>%
-    relocate(c(chrom), .before = n)
-  #model<- model %>%
-  #mutate(chromStart = as.numeric(chromStart))
+    filter(!length > 5000)
   
   #Filter for true convergences
   model<- model %>%
@@ -325,128 +367,38 @@ import_prom_pqlseq<- function(x){
 }
 
 #Age Within
-prom_m_files<- 'prom_pqlseq2_m_'
-prom_m_pqlseq<- import_prom_pqlseq(prom_m_files)
+age_w_files<- 'wb_pqlseq2_within_age'
+age_w_pqlseq<- import_pqlseq(age_w_files)
 
 #Mean Age
-prom_m_age_files<- 'prom_pqlseq2_mean_'
-prom_m_age_pqlseq<- import_prom_pqlseq(prom_m_age_files)
+age_m_files<- 'wb_pqlseq2_mean_age'
+age_m_pqlseq<- import_pqlseq(age_m_files)
 
 #Sex
-prom_f_files<- 'prom_pqlseq2_f_'
-prom_f_pqlseq<- import_prom_pqlseq(prom_f_files)
+sex_files<- 'wb_pqlseq2_sex'
+sex_pqlseq<- import_pqlseq(sex_files)
 
-#Rename cols for each df to indicate age/sex
-colnames(prom_m_pqlseq)<- c(names(prom_m_pqlseq[,1:3]), paste(names(prom_m_pqlseq[,4:11]), "m", sep = "_"))
-colnames(prom_m_age_pqlseq)<- c(names(prom_m_age_pqlseq[,1:3]), paste(names(prom_m_age_pqlseq[,4:11]), "mean_age", sep = "_"))
-colnames(prom_f_pqlseq)<- c(names(prom_f_pqlseq[,1:3]), paste(names(prom_f_pqlseq[,4:11]), "f", sep = "_"))
+#Rename cols for each df to indicate variable
+colnames(age_w_pqlseq)<- c("outcome", "length", "chrom", "chromStart", "chromEnd", "n", paste(names(age_w_pqlseq[,7:14]), "age", sep = "_"))
+colnames(age_m_pqlseq)<- c(paste(names(age_m_pqlseq), "mean_age", sep = "_"))
+colnames(sex_pqlseq)<- c(paste(names(sex_pqlseq), "sex", sep = "_"))
 
 #Cbind cols for age and sex dfs
-prom_pqlseq<- cbind(prom_m_pqlseq, prom_f_pqlseq[,4:11], prom_m_age_pqlseq[,4:11])
+pqlseq_model<- cbind(age_w_pqlseq, age_m_pqlseq[,7:14], sex_pqlseq[,7:14])
 
 #Sort chromosome factors
-sorted_labels<- str_sort(unique(prom_pqlseq$chrom), numeric=T)
-prom_pqlseq<- prom_pqlseq %>%
+sorted_labels<- str_sort(unique(pqlseq_model$chrom), numeric=T)
+pqlseq_model<- pqlseq_model %>%
   mutate(chrom = factor(chrom, levels = sorted_labels))
 
-rm(prom_m_pqlseq);rm(prom_m_age_pqlseq);rm(prom_f_pqlseq)
+rm(age_w_pqlseq);rm(age_m_pqlseq);rm(sex_pqlseq)
 
-#Add gene names
-mm_genes<- mm_genes %>%
-  filter(type == "gene") %>%
-  dplyr::select(c(gene_id, gene_name)) %>%
-  dplyr::rename(outcome = gene_id)
-
-prom_pqlseq<- inner_join(mm_genes, prom_pqlseq)
-
-x_prom<- prom_pqlseq %>%
-  filter(chrom == "X") %>%
-  filter(!is.na(gene_name))
-
-#Plot promoter estimates--------------------------------------------------------
-prom_pqlseq %>%
-  filter(! chrom == "X") %>%
-  filter(gene_name %in% hallmark.msigdb$gene_symbol) %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(!outcome == "ENSMMUG00000006211") %>%
-  filter(!is.na(gene_name) & !gene_name == "Metazoa_SRP") %>%
-  ggplot(aes(beta_m, beta_f)) +
-  geom_point(aes(colour=fdr_f<0.05),alpha=0.5, size=2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_smooth(method = "lm") +
-  geom_abline() +
-  geom_text(aes(label=ifelse(beta_f>0.15 | beta_f< -0.15 | beta_m>0.15 | beta_m< -0.15, as.character(gene_name),'')), hjust=-0.1) +
-  #geom_label_repel() +
-  theme_classic()
-
-x_prom %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(!gene_name == "Metazoa_SRP") %>%
-  ggplot(aes(beta_m, beta_f, colour=fdr_f<0.05, shape = fdr_f<0.05 & fdr_m<0.05, label=gene_name)) +
-  geom_point(size=2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  #geom_smooth(method = "lm") +
-  geom_text_repel() +
-  theme_classic()
-
-prom_pqlseq %>%
-  filter(fdr_f < 0.05 & fdr_m < 0.05) %>%
-  pivot_longer(cols=c(beta_f, beta_m), names_to = "sex", values_to = "beta") %>%
-  ggplot(aes(beta, fill=sex)) +
-  geom_histogram(position = "identity", bins = 200, colour="black", alpha = 0.5) +
-  theme_classic(base_size = 24)
-
-prom_pqlseq %>%
-  filter(fdr_f < 0.05 & fdr_m < 0.05) %>%
-  pivot_longer(cols=c(beta_f, beta_m), names_to = "sex", values_to = "beta") %>%
-  ggplot(aes(sex, beta, group = outcome)) +
-  geom_point(alpha = 0.7) +
-  geom_path(alpha = 0.3) +
-  theme_classic(base_size = 24) +
-  ylab("Beta") + xlab("") +
-  scale_x_discrete(labels = c("Female", "Male"))
-
-prom_pqlseq %>%
-  filter(!gene_name == "Metazoa_SRP" | gene_name == "NA") %>%
-  arrange(beta_m) %>%
-  filter(fdr_m < 0.05) %>%
-  dplyr::slice_head(n=10) %>%
-  ggplot(aes(beta_m, gene_name)) +
-  geom_col()
-
-#Import glm random effects summaries--------------------------------------------
-#Generate list of file names
-glm_rfx_list<- list.files('/scratch/ckelsey4/Cayo_meth/glmer_model_compare', 
-                      pattern = 'glmer_ranefx', 
-                      full.names = T)
-
-#Import glm models as list
-glm_rfx<- lapply(glm_rfx_list, readRDS)
-rfx_order<- gsub("/scratch/ckelsey4/Cayo_meth/glmer_model_compare/glmer_ranefx_", "", glm_rfx_list)
-names(glm_rfx)<- rfx_order
-
-#Generate list of file names
-glm_sum_list<- list.files('/scratch/ckelsey4/Cayo_meth/glmer_model_compare', 
-                          pattern = 'glmer_summaries', 
-                          full.names = T)
-
-#Import glm models as list
-glm_sum<- lapply(glm_sum_list, readRDS)
-sum_order<- gsub("/scratch/ckelsey4/Cayo_meth/glmer_model_compare/glmer_summaries_", "", glm_sum_list)
-names(glm_sum)<- sum_order
-
-sum_test<-glm_sum[[1]]
-
-#TESTING WAYS TO COMBINE SLOPES INTO ONE DF
-df1<- glm_rfx[[1]][[6]]
-df1<- df1 %>% pivot_wider(names_from = term, values_from = c(condval, condsd))
-
-#Remove intercept random effects
-df1<- glm_rfx[[1]]
-df1<- lapply(df1, function(x) filter(x, term == "age.w"))
-
+pqlseq_model %>% 
+  distinct(outcome, .keep_all = T) %>% 
+  ggplot(aes(length)) + 
+  geom_histogram(bins=100) +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(0, max(pqlseq_full$length), by=1000))
 
 #Plot pqlseq features------------------------------------------------------------
 age.w.count<- nrow(pqlseq_model[pqlseq_model$fdr_age < 0.05,])
@@ -465,11 +417,9 @@ counts %>%
   geom_bar(stat = 'identity', colour="black") +
   geom_text(label=counts$count, vjust=-1, size =5) +
   theme_classic(base_size = 32) +
+  xlab("Predictor") +
+  ylab("Count") +
   scale_fill_brewer(palette = "Set2")
-
-#To calculate % DMRs per variable
-nrow(pqlseq_model[pqlseq_model$fdr_age < 0.05 & pqlseq_model$beta_age < 0,])/counts[1, 1]
-nrow(pqlseq_model[pqlseq_model$fdr_sex < 0.05 & pqlseq_model$beta_sex < 0,])/counts[3, 1]
 
 ## Significant regions Venn diagram
 age.w<- pqlseq_model$outcome[pqlseq_model$fdr_age < 0.05]
@@ -498,6 +448,19 @@ pqlseq_model %>%
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
   scale_fill_manual(values = c("goldenrod2", "orangered2")) +
+  xlab("Age Estimate") +
+  ylab("Count") +
+  theme_classic(base_size=32)
+
+#Age
+test %>%
+  filter(fdr_age < 0.05) %>%
+  ggplot(aes(add, fill = add>0)) +
+  geom_histogram(bins=100, colour="black") +
+  geom_vline(xintercept=0, linetype="dashed") +
+  scale_fill_manual(values = c("goldenrod2", "orangered2")) +
+  xlab("Age Estimate") +
+  ylab("Count") +
   theme_classic(base_size=32)
   
 #Sex
@@ -507,6 +470,8 @@ pqlseq_model %>%
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta")) +
+  xlab("Sex Estimate") +
+  ylab("Count") +
   theme_classic(base_size=32)
   
 #Distribution of coefficients for age and sex combined
@@ -525,10 +490,12 @@ age_sex<- age_sex %>%
 age_sex %>%
   ggplot(aes(beta_age, beta_sex)) +
   geom_point(aes(colour=direction)) +
+  geom_abline() +
+  geom_smooth(method = "lm") +
   theme_classic(base_size=32) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_colour_brewer(palette = "Set2") 
+  scale_colour_brewer(palette = "Set2")
 
 age_sex %>%
   ggplot(aes(direction, fill=direction)) +
@@ -559,21 +526,6 @@ pqlseq_model %>%
   theme_classic(base_size = 32) +
   theme(legend.position = "none")
 
-#Additive effects
-add_model<- pqlseq_model %>%
-  filter(fdr_age < 0.05 & fdr_sex < 0.05) %>%
-  mutate(diff = beta_age - beta_sex,
-         add = beta_age + beta_sex) %>%
-  dplyr::select(c(outcome, beta_age, beta_sex, fdr_age, fdr_sex, diff, add)) %>%
-  pivot_longer(cols=c(beta_age, beta_sex), names_to = "term", values_to = "beta")
-
-add_model %>%
-  ggplot(aes(term, beta, group = outcome, colour = diff < 0)) +
-  geom_point(alpha = 0.7) +
-  geom_path(alpha = 0.3) +
-  theme_classic(base_size = 24) +
-  ylab("Beta") + xlab("")
-
 #Import nested pqlseq model-----------------------------------------------------
 #Generate list of file names
 file_list<- list.files(pattern = "male_age_pqlseq2_")
@@ -596,7 +548,7 @@ model$outcome2<- model$outcome
 model<- model %>%
   separate_wider_delim(outcome2, "_", names = c("chrom", "chromStart", "chromEnd"))
 model<- model %>%
-  relocate(chrom, .before = n)
+  relocate(c(chrom, chromStart, chromEnd), .before = n)
 
 #Filter for true convergences
 model<- model %>%
@@ -640,61 +592,109 @@ nested_pqlseq %>%
 nested_pqlseq %>%
   filter(beta < 0 & fdr < 0.05) %>%
   ggplot(aes(beta, fill=sex)) +
-  geom_histogram(bins=100, position = "identity", alpha = 0.5, colour="black") + 
+  geom_density(alpha = 0.5, colour="black") + 
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   theme_classic()
 
 #Plot significant hypermethylated estimates
 nested_pqlseq %>%
   filter(beta > 0 & fdr < 0.05) %>%
   ggplot(aes(beta, fill=sex)) +
-  geom_histogram(bins=100, position = "identity", alpha = 0.5, colour="black") + 
+  geom_density(alpha = 0.5, colour="black") + 
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   theme_classic()
 
 #Plot significant estimates
 nested_pqlseq %>%
   filter(fdr < 0.05) %>%
   ggplot(aes(beta, fill=sex)) +
-  geom_histogram(bins = 200, alpha = 0.5, position = "identity", colour="black") +
+  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  ylab("Count") +
+  xlab("Estimate") +
   theme_classic(base_size = 30)
 
+#Plot significant estimates
 nested_pqlseq %>%
   filter(fdr < 0.05) %>%
-  ggplot(aes(sex, abs(beta))) +
-  geom_violin(aes(fill=sex)) +
-  geom_boxplot()
+  ggplot(aes(sex, beta)) +
+  #geom_jitter(aes(colour = sex), alpha = 0.7)+
+  geom_boxplot(aes(fill = sex), width=0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  #scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  ylab("Estimate") +
+  xlab("Sex") +
+  theme_classic(base_size = 30)
 
+#Plot absolute beta
+nested_pqlseq %>%
+  filter(fdr < 0.05) %>%
+  ggplot(aes(abs_beta, fill=sex)) +
+  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") +
+  #geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  ylab("Count") +
+  xlab("Absolute Estimate") +
+  theme_classic(base_size = 30)
+
+#Plot estimates by chromosome by sex
 nested_pqlseq %>%
   filter(fdr < 0.05) %>%
   ggplot(aes(chrom, beta, colour=sex)) +
   geom_jitter(alpha=0.5) +
   geom_hline(yintercept = 0, linetype="dashed") +
-  scale_colour_manual(values = c("darkolivegreen", "darkmagenta")) +
+  scale_colour_manual(values = c("royalblue2", "orangered1")) +
   theme_classic(base_size = 32)
+
+nested_pqlseq %>%
+  filter(fdr < 0.05) %>%
+  ggplot(aes(sex, beta, group = outcome)) +
+  geom_point(alpha = 0.7) +
+  geom_path(alpha = 0.3) +
+  theme_classic(base_size = 24) +
+  ylab("Abs. Beta") + xlab("") +
+  scale_x_discrete(labels = c("Female", "Male"))
 
 #Generate and plot paired nested estimates--------------------------------------
 sex<- nested_pqlseq %>%
   dplyr::select(c(outcome, chrom, beta, abs_beta, fdr, sex)) %>%
-  pivot_wider(names_from = sex, values_from = c(beta, abs_beta, fdr), names_sep = "_") %>%
-  mutate(abs_diff = abs(beta_female - beta_male),
+  pivot_wider(names_from = sex, values_from = c(beta, abs_beta, fdr), names_sep = "_")
+
+sex<- sex %>%
+  mutate(abs_diff1 = abs(beta_female - beta_male),
+         abs_diff2 = abs(beta_female) - abs(beta_male),
          diff = beta_female - beta_male)
 
 df3<- sex %>%
-  filter(beta_female < 0 & beta_male < 0 & fdr_female < 0.05 & fdr_male < 0.05)
+  filter(fdr_female < 0.05 | fdr_male < 0.05)
 
-t.test(df3$f_beta, df3$m_beta)
-cohens_d(df3$f_beta, df3$m_beta)
+t.test(df3$beta_female, df3$beta_male, paired = T)
+cohens_d(df3$beta_female, df3$beta_male)
 sd(df3$f_beta)
 sd(df3$m_beta)
 
 sex %>%
-  ggplot(aes(diff, fill=diff<0)) +
-  geom_histogram(bins = 200) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  filter(fdr_female < 0.05 | fdr_male < 0.05) %>%
+  ggplot(aes(abs_diff2, fill = abs_diff2 > 0)) +
+  geom_histogram(bins = 100, colour = "black", position = 'identity', alpha = 0.8) +
+  #geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta")) +
+  xlab("Estimate (F) - Estimate (M)") +
+  ylab("Count") +
   theme_classic(base_size = 30)
 
+sex_signif<- sex %>%
+  filter(fdr_female < 0.05 | fdr_male < 0.05)
+
+broom::tidy(t.test(sex_signif$abs_beta_female, sex_signif$abs_beta_male, paired = T))
+cohens_d(sex_signif$abs_beta_female, sex_signif$abs_beta_male, paired = T)
+mean(sex_signif$abs_beta_female)
+mean(sex_signif$abs_beta_male)
+
 sex %>%
-  filter(fdr_female < 0.05 & fdr_male < 0.05) %>%
+  #filter(fdr_female < 0.05 | fdr_male < 0.05) %>%
   ggplot(aes(beta_female, beta_male)) +
   geom_point(alpha = 0.5) +
   geom_abline() +
@@ -703,9 +703,11 @@ sex %>%
   geom_smooth(method = "lm") +
   ylim(-0.5, 0.5) +
   xlim(-0.5, 0.5) +
-  theme_classic()
+  xlab("Estimate (Female)") +
+  ylab("Estimate (Male)") +
+  theme_classic(base_size = 30)
 
-summary(lm(f_beta ~ m_beta, data = sex))
+summary(lm(beta_female ~ beta_male, data = sex))
 
 #Plot comparison of male/female estimates with paths between paired regions
 t_vals<- data.frame(matrix(nrow=0, ncol=13))
@@ -716,11 +718,11 @@ colnames(t_vals)<- c("estimate", "statistic", "p.value", "parameter", "conf.low"
 for (i in seq(0, 0.10, by=0.01)) {
   
   df<- sex %>%
-    filter(fdr_female < 0.05 & fdr_male < 0.05 & diff > i)
+    filter(fdr_female < 0.05 & fdr_male < 0.05 & abs_diff > i)
   
-  df2<- broom::tidy(t.test(df$abs_beta_f, df$abs_beta_m, paired = T))
+  df2<- broom::tidy(t.test(df$abs_beta_female, df$abs_beta_male, paired = T))
   
-  df3<- cohens_d(df$abs_beta_f, df$abs_beta_m, paired = T)
+  df3<- cohens_d(df$abs_beta_female, df$abs_beta_male, paired = T)
   
   dd<- cbind(df2, df3)
   
@@ -740,11 +742,11 @@ colnames(t_vals2)<- c("estimate", "statistic", "p.value", "parameter", "conf.low
 for (i in seq(0, 0.10, by=0.01)) {
   
   df<- sex %>%
-    filter(fdr_female < 0.10 & fdr_male < 0.10 & diff > i)
+    filter(fdr_female < 0.10 & fdr_male < 0.10 & abs_diff > i)
   
-  df2<- broom::tidy(t.test(df$abs_beta_f, df$abs_beta_m, paired = T))
+  df2<- broom::tidy(t.test(df$abs_beta_female, df$abs_beta_male, paired = T))
   
-  df3<- cohens_d(df$abs_beta_f, df$abs_beta_m, paired = T)
+  df3<- cohens_d(df$abs_beta_female, df$abs_beta_male, paired = T)
   
   dd<- cbind(df2, df3)
   
@@ -763,7 +765,7 @@ t_vals %>%
   geom_point(aes(shape = p.value < .05), size = 3) +
   geom_path() +
   geom_errorbar(ymin = t_vals$conf.low, ymax = t_vals$conf.high, width = 0.001) +
-  scale_y_continuous(breaks = seq(-0.01, 0.1, by=0.01), limits = c(-0.01, 0.1)) +
+  scale_y_continuous(breaks = seq(-0.02, 0.1, by=0.02), limits = c(-0.02, 0.1)) +
   scale_x_continuous(breaks = seq(0, 0.1, by=0.01)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   ylab("Mean Difference (F - M)") +
@@ -779,16 +781,37 @@ t_vals %>%
   ylab("# of Regions") +
   theme_classic(base_size = 24)
 
+#Import glm random effects summaries--------------------------------------------
+#Generate list of file names
+glm_rfx_list<- list.files('/scratch/ckelsey4/Cayo_meth/glmer_model_compare', 
+                          pattern = 'glmer_ranefx', 
+                          full.names = T)
 
-sex %>%
-  filter(fdr_female < 0.05 & fdr_male < 0.05 & abs_diff > 0.05) %>%
-  ggplot(aes(beta_sex, abs_beta, group = outcome)) +
-  geom_point(alpha = 0.7) +
-  geom_path(alpha = 0.3) +
-  theme_classic(base_size = 24) +
-  ylab("Abs. Beta") + xlab("") +
-  scale_x_discrete(labels = c("Female", "Male")) +
-  ggtitle("fdr_f < 0.05 & fdr_m < 0.05 & abs(diff) > 0.05")
+#Import glm models as list
+glm_rfx<- lapply(glm_rfx_list, readRDS)
+rfx_order<- gsub("/scratch/ckelsey4/Cayo_meth/glmer_model_compare/glmer_ranefx_", "", glm_rfx_list)
+names(glm_rfx)<- rfx_order
+
+#Generate list of file names
+glm_sum_list<- list.files('/scratch/ckelsey4/Cayo_meth/glmer_model_compare', 
+                          pattern = 'glmer_summaries', 
+                          full.names = T)
+
+#Import glm models as list
+glm_sum<- lapply(glm_sum_list, readRDS)
+sum_order<- gsub("/scratch/ckelsey4/Cayo_meth/glmer_model_compare/glmer_summaries_", "", glm_sum_list)
+names(glm_sum)<- sum_order
+
+sum_test<-glm_sum[[1]]
+
+#TESTING WAYS TO COMBINE SLOPES INTO ONE DF
+df1<- glm_rfx[[1]][[6]]
+df1<- df1 %>% pivot_wider(names_from = term, values_from = c(condval, condsd))
+
+#Remove intercept random effects
+df1<- glm_rfx[[1]]
+df1<- lapply(df1, function(x) filter(x, term == "age.w"))
+
 
 ################################################################################
 ##### JOIN INTERSECT FILES WITH REGIONS FROM MODELS
@@ -944,63 +967,48 @@ pqlseq_full<- pqlseq_full %>%
 
 nested_pqlseq_full<- clean_pqlseq(nested_pqlseq_full)
 nested_pqlseq_full<- nested_pqlseq_full %>%
-  group_by(outcome, sex) %>%
+  group_by(outcome, sex, anno) %>%
   distinct(anno, .keep_all=T)
 
 pqlseq_full %>% 
-  distinct(outcome, .keep_all = T) %>% 
+  #distinct(outcome, .keep_all = T) %>% 
   ggplot(aes(length)) + 
   geom_histogram(bins=100) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0, max(pqlseq_full$length), by=1000))
 
 ## Plot class basics------------------------------------------------------------
+#Age
+pqlseq_full %>%
+  filter(fdr_age < .05) %>%
+  ggplot(aes(abs(beta_age), fill=class)) +
+  geom_density(alpha = 0.5) +
+  #geom_boxplot(width = 0.5) +
+  #geom_violin(alpha = 0.5) +
+  geom_hline(yintercept =0, linetype = 'dashed') +
+  theme_classic(base_size=32) +
+  scale_fill_brewer(palette = "Set3")
+
 #Sex
 pqlseq_full %>%
   filter(fdr_sex < .05) %>%
-  ggplot(aes(x=class, y=beta_sex)) +
-  geom_boxplot(width = 0.1) +
-  geom_violin(aes(fill=class), alpha = 0.5) +
+  ggplot(aes(beta_sex, fill=class)) +
+  geom_density(alpha = 0.5) +
+  #geom_boxplot(width = 0.5) +
+  #geom_violin(alpha = 0.5) +
   geom_hline(yintercept =0, linetype = 'dashed') +
   theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_brewer(palette = "Set3") +
-  coord_flip()
+  scale_fill_brewer(palette = "Set3")
 
-#Age
-autosomes %>%
-  filter(fdr_age < .05) %>%
-  ggplot(aes(x=class, y=beta_age)) +
-  geom_boxplot(width = 0.1) +
-  geom_violin(aes(fill=class), alpha = 0.5) +
-  geom_hline(yintercept =0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_brewer(palette = "Set3") +
-  coord_flip()
-
-#Age and Sex
-autosomes %>%
-  filter(fdr_age < .05 & fdr_sex < .05) %>%
-  ggplot(aes(x=class, y=beta_age)) +
-  geom_boxplot(width = 0.1) +
-  geom_violin(aes(fill=class), alpha = 0.5) +
-  geom_hline(yintercept =0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_brewer(palette = "Set3") +
-  coord_flip()
-
+#Nested model
 nested_pqlseq_full %>%
   filter(fdr < .05) %>%
-  filter(anno %in% annotations_ordered[1:15]) %>%
-  ggplot(aes(x=anno, y=beta, fill=sex)) +
-  #geom_boxplot(width = 0.1) +
-  geom_violin(aes(fill=sex), alpha = 0.5) +
+  ggplot(aes(x=class, y=beta, fill=sex)) +
+  geom_boxplot(width = 0.5, alpha = 0.8) +
+  #geom_violin(alpha = 0.5) +
   geom_hline(yintercept =0, linetype = 'dashed') +
   theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_brewer(palette = "Set3") +
+  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
   coord_flip()
 
 ### NESTED MODEL ENRICHMENT ####################################################
@@ -1174,7 +1182,7 @@ nest_sex_te %>%
 ### ENRICHMENT #################################################################
 #Generate wide dataframe for enrichment (0s,1s for annotations)-----------------
 #Select cols
-enrich_df<- autosomes %>% 
+enrich_df<- pqlseq_full %>% 
   dplyr::select(anno, outcome, beta_age, fdr_age, beta_sex, fdr_sex)
 #Add col with 1s for pivot_wider values arg and pivot
 enrich_df$a<- 1
@@ -1323,7 +1331,7 @@ age_sex_class %>%
   xlab("Annotation") +
   coord_flip()
 
-sex_class<- class_enrichment(autosomes, "sex")
+sex_class<- class_enrichment(pqlseq_full, "sex")
 
 sex_class %>%
   ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=annotation)) +
@@ -1333,7 +1341,7 @@ sex_class %>%
   scale_fill_brewer(palette = "Set3") +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
-  ylim(c(-2, 2)) +
+  ylim(c(-2, 3)) +
   ylab("Log Odds") +
   xlab("Annotation") +
   coord_flip()
@@ -1464,14 +1472,14 @@ sex_chmm<- chmm_enrichment(enrich_df, "sex")
 sex_chmm$annotation<- factor(sex_chmm$annotation, levels = rev(annotations_ordered[1:15]))
 
 sex_chmm %>%
-  ggplot(aes(x=annotation, y=log_or, colour=log_or<0, shape=padj<.05)) +
+  ggplot(aes(x=annotation, y=log_or, colour=log_or<0, shape=padj<.05, alpha = padj)) +
   geom_point(size=3) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_errorbar(ymin = sex_chmm$log_ci.lo, ymax = sex_chmm$log_ci.hi, width = 0.3) +
   scale_fill_brewer(palette = "Set3") +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
-  ylim(c(-4, 4)) +
+  ylim(c(-5, 5)) +
   ylab("Log Odds") +
   xlab("Annotation") +
   coord_flip()
@@ -1650,45 +1658,6 @@ age_sex_te %>%
   xlab("Annotation") +
   coord_flip()
 
-################################################################################
-#Categorical enrichment
-################################################################################
-#Generate hallmark gene set
-hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "C7")
-hallmark.msigdb<- hallmark.msigdb %>%
-  filter(gs_subcat == "IMMUNESIGDB")
-hallmark.msigdb = split(x = hallmark.msigdb$ensembl_gene, f = hallmark.msigdb$gs_name)
-
-#Generate gene ontology set
-go_set = msigdbr(species = "Macaca mulatta", category = "C5", subcategory = "GO:MF")
-go_set = split(x = go_set$ensembl_gene, f = go_set$gs_name)
-
-#Generate rank-ordered vector by pqlseq coefficient
-m_genes<- prom_pqlseq %>% 
-  dplyr::select(outcome, beta_m) %>% 
-  arrange(desc(beta_m))
-
-m_genes2<- m_genes$beta_m
-names(m_genes2) = m_genes$outcome
-
-#Enrichment for Hallmark set
-m_gsea<- fgsea(pathways = hallmark.msigdb, 
-                 stats    = m_genes2,
-                 minSize  = 15,
-                 maxSize  = 500,
-                 eps = 0.0)
-
-#Assign pathway variable as factor for plotting
-sex_gsea<- sex_gsea %>%
-  mutate_at(vars(pathway), as.factor) %>%
-  mutate(pathway = fct_reorder(pathway, ES))
-
-#Plot hallmark enrichment
-ggplot(sex_gsea, aes(x = reorder(pathway, NES), y = NES, fill = padj)) +
-  geom_col(colour="black") +
-  scale_fill_distiller(palette="BuGn") +
-  theme_classic() +
-  coord_flip()
 
 #Save workspace image-----------------------------------------------------------
 save.image("wb_age_analysis.RData")

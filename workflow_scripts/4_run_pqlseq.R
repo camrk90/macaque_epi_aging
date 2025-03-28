@@ -17,7 +17,9 @@ kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
 #Import m/cov rds------------------------------------------------------------
 # load region lists that have been filtered for 5x coverage in 90% of samples
 regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered")
+regions_cov<- regions_cov[1:21]
 regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered")
+regions_m<- regions_m[1:21]
 
 #Filter metadata to lids in regions list
 long_data<- long_data[long_data$lid_pid %in% colnames(regions_cov[[1]]),]
@@ -49,7 +51,7 @@ meth<- regions_m[[SAMP]]
 #Generate model matrix
 predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + pid, data = long_data)
 w.age_phenotype<- predictor_matrix[, 2]
-w.age_covariates<- predictor_matrix[, 3:4]
+w.age_covariates<- predictor_matrix[, 3:12]
 
 #Run pqlseq model
 w.age_pqlseq2_model<- pqlseq2(Y = meth, x = w.age_phenotype, 
