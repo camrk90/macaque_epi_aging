@@ -1,3 +1,5 @@
+library(tidyverse)
+
 setwd("/scratch/ckelsey4/Cayo_meth")
 ######################################
 ###        Chromatin States        ###
@@ -5,14 +7,12 @@ setwd("/scratch/ckelsey4/Cayo_meth")
 #Import chmm state intersect files
 chmm_intersect<- read.table("./intersect_files/region_chmm_intersect.txt", header = F)
 chmm_intersect<- chmm_intersect %>%
-  dplyr::select(-c(V5, V6, V7, V8, V9, V13, V14, V15))
-colnames(chmm_intersect)<- c("chr", "anno_start", "anno_end", "anno", "region_chr", "chromStart", "region_end", "overlap")
-chmm_intersect<- chmm_intersect %>%
-  mutate(anno_start = anno_start+1, chromStart = chromStart+1)
+  dplyr::select(c(V1, V2, V3, V4, V11, V17, V18))
+colnames(chmm_intersect)<- c("chr", "anno_start", "anno_end", "anno", "cpg_loc", "region_start", "region_end")
 
 #Factor chrom levels
 chmm_intersect$chr<- gsub("chr", "", chmm_intersect$chr)
-chmm_intersect$chr<- factor(chmm_intersect$chr, levels = c(1:21))
+chmm_intersect$chr<- factor(chmm_intersect$chr, levels = c(1:22, "X", "Y"))
 
 ######################################
 ###        Repeat Elements         ###
@@ -20,10 +20,8 @@ chmm_intersect$chr<- factor(chmm_intersect$chr, levels = c(1:21))
 #Import and edit RE track intersect 
 repeat_intersect<- read.table("./intersect_files/region_repeat_intersect.txt", header = F)
 repeat_intersect<- repeat_intersect %>%
-  dplyr::select(-c(V4, V5, V6, V10, V11, V12))
-colnames(repeat_intersect)<- c("chr", "anno_start", "anno_end", "region_chr", "region_start", "region_end", "overlap")
-repeat_intersect<- repeat_intersect %>%
-  mutate(anno_end = anno_end-1)
+  dplyr::select(c(V1, V2, V3, V8, V14, V15))
+colnames(repeat_intersect)<- c("chr", "anno_start", "anno_end", "cpg_loc", "region_start", "region_end")
 
 #Generate range col to more easily match joins
 #Repeat bed file
@@ -43,7 +41,7 @@ repeats_bed<- repeats_bed %>%
 
 #Refactor chr levels
 repeats_bed$chr<- gsub("chr", "", repeats_bed$chr)
-repeats_bed$chr<- factor(repeats_bed$chr, levels = c(1:21, 'X'))
+repeats_bed$chr<- factor(repeats_bed$chr, levels = c(1:21, 'X', 'Y'))
 
 #Generate range col
 repeats_bed<- repeats_bed %>%
