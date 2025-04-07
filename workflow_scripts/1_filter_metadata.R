@@ -38,9 +38,17 @@ blood_metadata<- blood_metadata %>%
   ungroup() %>%
   arrange(monkey_id)
 
+#Add university prepped
+blood_metadata<- blood_metadata %>%
+  mutate(prep_year = year(prep_date))
+
+blood_metadata$university<- "uw"
+blood_metadata$university[blood_metadata$prep_year > 2019]<- "asu"
+
 #Select important cols
 blood_metadata_short<- blood_metadata %>%
-  dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n)
+  dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n, 
+                processing_timestamp, prep_date, university)
 
 #Filter out ids that have two entries at the same age
 blood_metadata_short<- blood_metadata_short %>%

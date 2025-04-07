@@ -9,14 +9,23 @@ setwd("/scratch/ckelsey4/Cayo_meth/glmer_model_compare")
 
 #Import metadata----------------------------------------------------------------
 long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+
 long_data<- long_data %>%
   arrange(lid_pid) %>%
   filter(n > 1)
+
+#Import kinship matrix----------------------------------------------------------
 kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
 
+#Subset and rearrange kinship rows and cols to match metadata
+kinship<- kinship[long_data$lid_pid, long_data$lid_pid]
+
 #Import m/cov rds------------------------------------------------------------
+# load region lists that have been filtered for 5x coverage in 90% of samples
 regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered")
+regions_cov<- regions_cov[1:21]
 regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered")
+regions_m<- regions_m[1:21]
 
 #Filter metadata to lids in regions list
 long_data<- long_data[long_data$lid_pid %in% colnames(regions_cov[[1]]),]
@@ -46,20 +55,20 @@ meth<- regions_m[[SAMP]]
 ###################################
 #Run PQLseq for males:withinage ------------------------------------------------
 #Generate model matrix
-predictor_matrix<- model.matrix(~ individual_sex:within.age + mean.age +  pid, data = long_data)
-m_phenotype<- predictor_matrix[, 12]
-m_covariates<- predictor_matrix[, c(2,11)]
+predictor_matrix<- model.matrix(~ individual_sex:within.age + mean.age +  university, data = long_data)
+m_phenotype<- predictor_matrix[, 5]
+m_covariates<- predictor_matrix[, c(2:4)]
 
 #Run pqlseq model
 male_age_pqlseq2<- pqlseq2(Y = meth, x = m_phenotype, 
                               K = kinship, W = m_covariates, 
-                              lib_size = cov, model="BMM")
+                              lib_size = cov, model="BMM", verbose=T)
 
 #Run PQLseq for females:withinage-----------------------------------------------
 #Generate model matrix
 predictor_matrix<- model.matrix(~ individual_sex:within.age + mean.age +  pid, data = long_data)
-f_phenotype<- predictor_matrix[, 11]
-f_covariates<- predictor_matrix[, c(2,12)]
+f_phenotype<- predictor_matrix[, 4]
+f_covariates<- predictor_matrix[, c(2:3,5)]
 
 #Run pqlseq model
 female_age_pqlseq2<- pqlseq2(Y = meth, x = f_phenotype, 
@@ -70,7 +79,7 @@ female_age_pqlseq2<- pqlseq2(Y = meth, x = f_phenotype,
 #Generate model matrix
 predictor_matrix<- model.matrix(~ individual_sex:within.age + mean.age + pid, data = long_data)
 m.age_phenotype<- predictor_matrix[, 2]
-m.age_covariates<- predictor_matrix[, c(11,12)]
+m.age_covariates<- predictor_matrix[, c(3:5)]
 
 #Run pqlseq model
 mean_age_pqlseq2<- pqlseq2(Y = meth, x = m.age_phenotype, 

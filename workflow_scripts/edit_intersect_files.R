@@ -14,6 +14,10 @@ colnames(chmm_intersect)<- c("chr", "anno_start", "anno_end", "anno", "cpg_loc",
 chmm_intersect$chr<- gsub("chr", "", chmm_intersect$chr)
 chmm_intersect$chr<- factor(chmm_intersect$chr, levels = c(1:22, "X", "Y"))
 
+#Add range column
+chmm_intersect<- chmm_intersect %>%
+  mutate(region_range = paste(as.character(region_start), "-", as.character(region_end)))
+
 ######################################
 ###        Repeat Elements         ###
 ######################################
@@ -30,6 +34,7 @@ repeat_intersect$chr<- factor(repeat_intersect$chr, levels = c(1:22, "X", "Y"))
 #Generate range col to facilitate join to repeat annotation df 
 repeat_intersect<- repeat_intersect %>%
   mutate(range = paste(as.character(anno_start), "-", as.character(anno_end))) %>%
+  mutate(region_range = paste(as.character(region_start), "-", as.character(region_end)))
   relocate(range, .before = chr)
 
 #Generate range col to more easily match joins
