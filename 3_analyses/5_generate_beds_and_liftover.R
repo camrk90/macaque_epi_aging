@@ -11,16 +11,31 @@ library(GenomicRanges)
 #make txdb from macaque gff
 macaque_txdb<- makeTxDbFromGFF("/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf")
 
-gtf_mm<- rtracklayer::import('/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf')
-gtf_mm_df=as.data.frame(gtf_mm)
-
 #extract unique chromosomes
 unique_chrs <- unique(seqlevels(macaque_txdb))
 
 # Select the first 22(1-20 + X/Y) unique chromosome names as a redundancy against missing chromosome levels in the txdb object
 # This will not match to the bsseq object if the chromosomes levels in txdb don't match for whatever reason
-selected_chrs <- unique_chrs[1:21]
+selected_chrs <- unique_chrs[1:22]
 macaque_txdb <- keepSeqlevels(macaque_txdb, selected_chrs)
+
+#Generate genes and promoters
+macaque_genes = genes(macaque_txdb)
+macaque_promoters=promoters(macaque_genes,upstream=2000,downstream=200)
+
+macaque_promoters<- as.data.frame(macaque_promoters)
+
+macaque_promoters<- macaque_promoters %>%
+  dplyr::select(c(seqnames, start, end))
+
+macaque_promoters<- macaque_promoters %>%
+  arrange(seqnames, start)
+
+macaque_promoters$seqnames<- paste("chr", macaque_promoters$seqnames, sep = "")
+
+#removes one entry with a negative start coordinate
+macaque_promoters<- macaque_promoters %>%
+  filter(!start < 0)
 
 ######################################
 ### Generate .bed file for regions ###
@@ -122,9 +137,9 @@ selected_chrs<- gsub(" ", "", paste("chr", selected_chrs))
 chmm_mmul2<- keepSeqlevels(chmm_mmul, selected_chrs, pruning.mode = "coarse")
 chmm_mmul2<- sort(chmm_mmul2)
 
-
 #Export files as .bed for intersect---------------------------------------------
 setwd('/scratch/ckelsey4/Cayo_meth/intersect_files')
+rtracklayer::export.bed(macaque_promoters, con = "promoters.bed")
 rtracklayer::export.bed(regions_bed, con = "glm_regions.bed")
 rtracklayer::export.bed(repeats_bed, con = "repeats.bed")
 rtracklayer::export.bed(chmm_mmul2, con = "chmm_mmul.bed")

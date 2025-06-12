@@ -47,10 +47,6 @@ regions_m<- lapply(names(regions_m), function(x){
   return(regions_m)
 })
 
-#Import genes-------------------------------------------------------------------
-mm_genes<- rtracklayer::import('/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf')
-mm_genes=as.data.frame(mm_genes)
-
 
 ######################################
 ####        AVERAGE %METH          ###
@@ -120,7 +116,7 @@ length(unique(long_data$monkey_id))
 
 long_data %>%
   distinct(monkey_id, .keep_all = T) %>%
-  ggplot(aes(individual_sex, fill = individual_sex)) +
+  ggplot(aes(sex, fill = sex)) +
   geom_bar(colour="black", alpha = 0.8) + 
   scale_fill_manual(values = c("royalblue1", "orangered1"), name = "Sex") +
   geom_text(stat = "count", aes(label = after_stat(count)),
@@ -134,29 +130,36 @@ long_data %>%
 #Mean age by sex----------------------------------------------------------------
 long_data %>% 
   distinct(monkey_id, .keep_all = T) %>%
-  ggplot(aes(x=mean.age, fill = sex)) +
+  ggplot(aes(x=age_at_sampling, fill = sex)) +
   geom_histogram(alpha=0.7, position = position_dodge(width = 1.5), bins=10, colour="black") +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   scale_x_continuous(breaks = seq(0, 30, by=5)) +
-  theme_classic(base_size = 32) +
-  labs(y = "Count", x = "Mean Age")
+  theme_classic(base_size = 24) +
+  labs(y = "Count", x = "Age")
+
+length(unique(long_data$monkey_id))
 
 #N samples by sex---------------------------------------------------------------
 long_data %>% 
   distinct(monkey_id, .keep_all = T) %>%
   ggplot(aes(x=n, fill = sex)) +
   geom_bar(alpha = 0.7, position = position_dodge(width = 0.5), colour = "black") +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   theme_classic(base_size = 32) +
   labs(y = "Count", x = "N")
 
 #N samples per individual-------------------------------------------------------
+long_data<- long_data %>%
+  group_by(monkey_id) %>%
+  mutate(min_age = min(age_at_sampling))
+long_data$age_at_sampling<- round(long_data$age_at_sampling, 0)
+
 long_data %>%
-  ggplot(aes(x=age_at_sampling, y=reorder(monkey_id, mean.age), colour=sex)) +
+  ggplot(aes(x=age_at_sampling, y=reorder(monkey_id, min_age), colour=sex)) +
   geom_path(linewidth = 1.5, alpha = 0.8) +
   geom_point(colour="black") +
   scale_x_continuous(breaks = seq(0, 30, by=2)) +
-  scale_colour_manual(values = c("royalblue1", "orangered1"), name = "Sex") +
+  scale_colour_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   ylab("Individual") +
   xlab("Age") +
   theme_classic(base_size = 24) +
@@ -190,7 +193,7 @@ all.equal(pcs$lid_pid, long_data$lid_pid)
 #Check which pca's explain the most variance
 summary(pca_wb)$importance[2, ]
 
-pcs<- cbind(pcs[1:10], dplyr::select(long_data, c("within.age", "mean.age", "sex", "pid")))
+pcs<- cbind(pcs[1:10], dplyr::select(long_data, c("age_at_sampling", "within.age", "mean.age", "sex", "pid")))
 
 pcs %>% 
   ggplot(aes(PC1, PC2, colour=pid)) + 
@@ -204,16 +207,15 @@ summary(pc_lm)
 pcs<- cbind(pcs, predicted_pcs)
 
 pcs %>%
-  ggplot(aes(within.age, predicted_pcs)) +
+  ggplot(aes(within.age, PC1)) +
   geom_point() +
   geom_smooth(method = "lm") +
   theme_classic(base_size = 24)
 
-pc.matrix<- model.matrix(~ PC1 + PC2 + within.age + sex + mean.age + pid, data = pcs)
-pc.matrix[, 2:14] %>% 
+pc.matrix<- model.matrix(~ predicted_pcs + PC1 + PC2 + PC3 + within.age + sex + mean.age + pid, data = pcs)
+pc.matrix[, 3:ncol(pc.matrix)] %>% 
   cor(use="pairwise.complete.obs") %>%
   ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=2)
-
 
 ######################################
 ###      Import GLMER Models       ###
@@ -403,6 +405,9 @@ sex_pqlseq<- sex_pqlseq %>%
   
 rm(age_w_pqlseq);rm(age_m_pqlseq)
 
+pqlseq_model<- pqlseq_model %>%
+  mutate(abs_diff = abs(beta_age) - abs(beta_mean_age))
+
 pqlseq_model %>% 
   distinct(outcome, .keep_all = T) %>% 
   ggplot(aes(length)) + 
@@ -423,13 +428,14 @@ counts<- counts %>%
 rm(age.w.count);rm(age.m.count);rm(sex.count)
 
 counts %>%
+  filter(predictor != "Sex") %>%
   ggplot(aes(predictor, count, fill = predictor)) +
   geom_bar(stat = 'identity', colour="black") +
-  geom_text(label=counts$count, vjust=-1, size =5) +
+  geom_text(label=counts$count[counts$predictor != "Sex"], vjust=-1, size =5) +
   theme_classic(base_size = 32) +
   xlab("Predictor") +
   ylab("Count") +
-  scale_fill_brewer(palette = "Set2")
+  scale_fill_manual(values = c("hotpink3", "darkgoldenrod2"))
 
 ## Significant regions Venn diagram
 age.w<- pqlseq_model$outcome[pqlseq_model$fdr_age < 0.05 & pqlseq_model$chrom != "Y"]
@@ -457,23 +463,52 @@ pqlseq_model %>%
   ggplot(aes(beta_age, fill = beta_age>0)) +
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
-  scale_fill_manual(values = c("goldenrod2", "orangered2")) +
+  scale_fill_manual(values = c("slateblue3", "orangered2")) +
   xlab("Age Estimate") +
   ylab("Count") +
   theme_classic(base_size=32)
 
+pqlseq_model %>%
+  filter(fdr_age < .05 | fdr_mean_age < .05) %>%
+  ggplot(aes(beta_mean_age, beta_age, colour = abs_diff)) +
+  geom_point() +
+  geom_abline() +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  scale_color_gradient2(low = "darkgoldenrod2", mid = "white", high = "hotpink3", midpoint = 0, name = "") +
+  theme_classic(base_size=32) +
+  theme(legend.key.height= unit(2, 'cm')) +
+  ylab("Age Within") +
+  xlab("Age Between")
+
+log_age<- pqlseq_model %>%
+  filter(fdr_age < .05 | fdr_mean_age < .05) %>%
+  mutate(log_age = log(abs(beta_age)/abs(beta_mean_age))) %>%
+  dplyr::select(log_age)
+mean(log_age$log_age)
+
+log_age %>%
+  ggplot(aes(log_age, fill = log_age<0)) +
+  geom_histogram(colour="black", position = "identity", bins = 100) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("hotpink3", "darkgoldenrod2")) +
+  theme_classic(base_size = 32) +
+  theme(legend.position = "none") +
+  ylab("Count") +
+  xlab("Log(Age Within/Age Between)")
+
 df<- pqlseq_model %>%
-  dplyr::select(c(chrom, beta_age, fdr_age))
+  dplyr::select(c(chr, beta_age, fdr_age))
 df$type<- "autosomes"
-df$type[df$chrom == "X"]<- "X"
-df$type[df$chrom == "Y"]<- "Y"
+df$type[df$chr == "X"]<- "X"
+df$type[df$chr == "Y"]<- "Y"
 
 df %>%
   filter(fdr_age < 0.05) %>%
   ggplot(aes(type, beta_age, colour=beta_age>0)) +
   geom_jitter(alpha=0.5) +
   geom_hline(yintercept = 0, linetype="dashed") +
-  scale_colour_manual(values = c("goldenrod2", "orangered2")) +
+  scale_colour_manual(values = c("slateblue3", "orangered2")) +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
   ylab("Age Estimate (FDR < .05)") +
@@ -536,6 +571,9 @@ age_sex %>%
   ylab("Sex Estimate") +
   xlab("Age Estimate")
 
+summary(lm(beta ~ beta_age, data = age_sex))
+cor.test(age_sex$beta, age_sex$beta_age)
+
 age_sex %>%
   filter(fdr_age < 0.05 & fdr < 0.05) %>%
   ggplot(aes(direction, fill=direction)) +
@@ -565,11 +603,23 @@ df1<- sapply(names(df1), function(x){
   df<- df1[[x]]
   df<- df %>%
     filter(term == "age.w") %>%
-    dplyr::select(-c(grpvar, term, grp, condsd))
+    dplyr::select(-c(grpvar, term, condsd))
 }, USE.NAMES = T, simplify = F)
 
-df2<- do.call(cbind, df1)
-colnames(df2)<- names(df1)
+df2<- do.call(rbind, df1)
+df2$region<- str_split_i(rownames(df2), "\\.", 3)
+
+df3<- df2 %>%
+  pivot_wider(names_from = region, values_from = condval)
+
+sex<- long_data %>%
+  distinct(monkey_id, .keep_all = T) %>%
+  dplyr::select(monkey_id, sex) %>%
+  arrange(monkey_id)
+
+df3<- cbind(df3, sex[,2])
+df3<- df3 %>%
+  relocate(sex, .after = grp)
 
 #Remove intercept random effects
 
@@ -946,7 +996,95 @@ sex_class %>%
   coord_flip()
 
 #chmm enrichment----------------------------------------------------------------
-chmm_enrichment<- function(model_df, var_opt){
+dml_enrichment<- function(model_df, var_opt){
+  
+  df_list<- list()
+  
+  df<- model_df
+  
+  chmm<- unique(df$anno)
+  
+  if (var_opt=="sex") {
+
+    for (i in chmm) {
+      
+      #Counts for negative estimates
+      a<- nrow(df[df$fdr < 0.05 & df$anno == i,])
+      b<- nrow(df[df$fdr < 0.05 & df$anno != i,])
+      
+      #Counts positive estimates
+      c<- nrow(df[df$fdr > 0.05 & df$anno == i,])
+      d<- nrow(df[df$fdr > 0.05 & df$anno != i,])
+      
+      #Generate contingency table - cols are class, rows are direction
+      c_table<- data.frame(negY = c(a, b),
+                           negN = c(c, d),
+                           row.names = c(paste(i, "Y"), paste(i,"N")))
+      
+      df_list[[length(df_list)+1]] = c_table
+    } 
+  } else if (var_opt=="age") {
+    
+    for(i in chmm){
+      
+      #Counts for negative estimates
+      a<- nrow(df[df$fdr_age < 0.05 & df$anno == i,])
+      b<- nrow(df[df$fdr_age < 0.05 & df$anno != i,])
+      
+      #Counts positive estimates
+      c<- nrow(df[df$fdr_age > 0.05 & df$anno == i,])
+      d<- nrow(df[df$fdr_age > 0.05 & df$anno != i,])
+      
+      #Generate contingency table - cols are class, rows are direction
+      c_table<- data.frame(negY = c(a, b),
+                           negN = c(c, d),
+                           row.names = c(paste(i, "Y"), paste(i,"N")))
+      print(c_table)
+      
+      df_list[[length(df_list)+1]] = c_table
+      
+    }
+  } 
+  
+  #name table list
+  names(df_list)<- chmm
+  
+  #Fisher test for each table and tidy with broom
+  ft<- lapply(df_list, fisher.test)
+  ft<- lapply(ft, broom::tidy)
+  
+  ft<- do.call(rbind, ft)
+  ft<- ft %>%
+    mutate(annotation = rownames(ft))
+  
+  #FDR p-val adjustment
+  ft<- ft %>%
+    mutate(padj = p.adjust(p.value)) %>%
+    mutate_at(vars(annotation), as.factor)
+  
+  #Log estimates and CIs
+  ft<- ft %>%
+    mutate(log_or = log(estimate),
+           log_ci.lo = log(conf.low),
+           log_ci.hi = log(conf.high))
+}
+
+age_dml<- dml_enrichment(pqlseq_chmm, "age")
+age_dml$annotation<- factor(age_dml$annotation, levels = rev(annotations_ordered[1:15]))
+
+age_dml %>%
+  ggplot(aes(x=annotation, y=log_or, fill=padj<0.05)) +
+  geom_col() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_errorbar(ymin = age_dml$log_ci.lo, ymax = age_dml$log_ci.hi, width = 0.3) +
+  theme_classic(base_size = 32) +
+  theme(legend.position = "none") +
+  ylim(c(-1, 6)) +
+  ylab("Log Odds") +
+  xlab("Annotation") +
+  coord_flip()
+
+directional_enrichment<- function(model_df, var_opt){
   
   df_list<- list()
   
@@ -1028,7 +1166,7 @@ chmm_enrichment<- function(model_df, var_opt){
 }
 
 #Age
-age_chmm<- chmm_enrichment(pqlseq_chmm, "age")
+age_chmm<- directional_enrichment(pqlseq_chmm, "age")
 age_chmm$annotation<- factor(age_chmm$annotation, levels = rev(annotations_ordered[1:15]))
 age_chmm<- age_chmm %>%
   filter(!estimate == Inf)
@@ -1046,7 +1184,7 @@ age_chmm %>%
   coord_flip()
 
 #Sex
-sex_chmm<- chmm_enrichment(sex_pqlseq_chmm, "sex")
+sex_chmm<- directional_enrichment(sex_pqlseq_chmm, "sex")
 sex_chmm$annotation<- factor(sex_chmm$annotation, levels = rev(annotations_ordered[1:15]))
 
 sex_chmm %>%
@@ -1057,24 +1195,6 @@ sex_chmm %>%
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
   ylim(c(-4, 4)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#Age and Sex
-age_sex_chmm<- chmm_enrichment(enrich_df, "both")
-age_sex_chmm$annotation<- factor(age_sex_chmm$annotation, levels = rev(annotations_ordered[1:15]))
-
-age_sex_chmm %>%
-  filter(!estimate == Inf) %>%
-  ggplot(aes(x=annotation, y=log_or, colour=log_or<0, shape=padj<.05)) +
-  geom_point(size=3) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = age_sex_chmm[!age_sex_chmm$estimate == Inf,]$log_ci.lo, ymax = age_sex_chmm[!age_sex_chmm$estimate == Inf,]$log_ci.hi, width = 0.3) +
-  scale_fill_brewer(palette = "Set3") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-6, 6)) +
   ylab("Log Odds") +
   xlab("Annotation") +
   coord_flip()
@@ -1090,11 +1210,11 @@ te_enrichment<- function(model_df, var_opt){
   
   if (var_opt=="sex") {
     
-    #filter model for negative sex estimates
+    #filter model for set fdr threshold
     df<- df %>%
       filter(fdr < 0.05)
     
-    #create list of contingency tables for sex
+    #generate list of contigency tables for each rep class
     for (i in te) {
       
       #Counts for negative estimates
@@ -1109,16 +1229,17 @@ te_enrichment<- function(model_df, var_opt){
       c_table<- data.frame(negY = c(a, b),
                            negN = c(c, d),
                            row.names = c(paste(i, "Y"), paste(i,"N")))
+      print(c_table)
       
       df_list[[length(df_list)+1]] = c_table
     } 
   } else if (var_opt=="age") {
     
-    #filter model for negative sex estimates
+    #filter model for set fdr threshold
     df<- df %>%
       filter(fdr_age < 0.05)
     
-    #create list of contingency tables for sex
+    #generate list of contigency tables for each rep class
     for(i in te){
       
       #Counts for negative estimates
@@ -1232,16 +1353,23 @@ add_chmm<- cbind(add_chmm, df)
 rm(df)
 
 add_chmm<- add_chmm %>%
-  filter(fdr_age < 0.05 & fdr_sex < 0.05)
+  filter(fdr_age < 0.05 & fdr_sex < 0.05 & !chr == "X") 
+
 add_chmm<- add_chmm %>%
-  mutate(additive = beta_age + beta_sex)
+  dplyr::select(c(anno, cpg_loc, beta_age, beta_sex))
 
-add_chmm_no_x<- add_chmm %>%
-  filter(!chr == "X") %>%
-  dplyr::select(c(anno, beta_age, additive))
+add_chmm<- add_chmm %>%
+  pivot_longer(cols = c("beta_age", "beta_sex"), names_to = "type", values_to = "beta")
 
-add_chmm_no_x<- add_chmm_no_x %>%
-  pivot_longer(cols = c("beta_age", "additive"), names_to = "type", values_to = "beta")
+add_chmm %>%
+  #filter(anno == "7_Enh") %>%
+  ggplot(aes(type, beta, colour = beta < 0, group = cpg_loc)) +
+  geom_point(alpha = 0.1) +
+  geom_path(alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_classic(base_size = 24) +
+  scale_x_discrete(labels = c("Age", "Sex"))
+  #facet_wrap(vars(anno), nrow=3)
 
 add_chmm_no_x %>%
   ggplot(aes(beta, fill = type)) +
@@ -1265,14 +1393,15 @@ add_re<- add_re %>%
 
 add_re_no_x<- add_re %>%
   filter(!chr == "X") %>%
-  dplyr::select(c(repClass, beta_age, additive))
+  dplyr::select(c(repClass, beta_age, beta_sex, additive))
 
 add_re_no_x<- add_re_no_x %>%
-  pivot_longer(cols = c("beta_age", "additive"), names_to = "type", values_to = "beta")
+  pivot_longer(cols = c("beta_age", "beta_sex", "additive"), names_to = "type", values_to = "beta")
 
 add_re_no_x %>%
   ggplot(aes(beta, fill = type)) +
-  geom_histogram(colour = "black", bins = 200, alpha = 0.7, position = "identity") +
+  geom_density(alpha = 0.7) +
+  #geom_histogram(colour = "black", bins = 200, alpha = 0.7, position = "identity") +
   theme_classic(base_size = 24) +
   ylab("Count") +
   xlab("Estimate")

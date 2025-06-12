@@ -9,9 +9,12 @@ SAMP <- as.integer(SAMP)
 library(dplyr)
 library(stringr)
 library(readr)
+options(scipen = 999)
+
+getOption("scipen")
 
 ##set unique file ID's
-unique_fileID<- list.files(path = "/scratch/ckelsey4/Cayo_meth/epigenetic_drift/sam_files")[SAMP]
+unique_fileID<- list.files(path = "/scratch/ckelsey4/Cayo_meth/epigenetic_drift/sam_files")[1]
 unique_fileID<- str_split_i(unique_fileID, "\\.", 1)
 
 ##set file paths
@@ -54,8 +57,10 @@ cleaned.SAM <- na.omit(SAM)
 ## write.table(cleaned.SAM, file=paste0(opt$outputDir,"/", opt$fileID, "_cleaned_SAM.txt"))
 ## now make txt file in bed format for each with the 0 based start and end positions after removing cytosines without a neighbor on the nearest read (0 or 1 CpG)
 perRead_bed <- cleaned.SAM[,c("CHROM","zero.based.start","zero.based.end","V1","read.discordance.perc")]
+
+#Remove scientific notation from coordinates
+perRead_bed<- format(perRead_bed, scientific=F)
 ## write the result table in an individual text file
-write.table(perRead_bed, file=paste0("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/pdn_out/", unique_fileID, "_PDN_per_read.txt"))
-
-
+write.table(perRead_bed, file=paste0("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/pdn_out/", unique_fileID, "_PDN_per_read.bed"),
+            row.names = F, quote = F)
 

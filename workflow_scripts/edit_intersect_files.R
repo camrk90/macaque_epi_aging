@@ -1,6 +1,7 @@
 library(tidyverse)
 
 setwd("/scratch/ckelsey4/Cayo_meth")
+
 ######################################
 ###        Chromatin States        ###
 ######################################
@@ -16,6 +17,23 @@ chmm_intersect$chr<- factor(chmm_intersect$chr, levels = c(1:22, "X", "Y"))
 
 #Add range column
 chmm_intersect<- chmm_intersect %>%
+  mutate(region_range = paste(as.character(region_start), "-", as.character(region_end)))
+
+######################################
+###          Promoters             ###
+######################################
+#Import chmm state intersect files
+promoters<- read.table("./intersect_files/promoters_intersect.txt", header = F)
+promoters<- promoters %>%
+  dplyr::select(c(V1, V2, V3, V4, V8, V14, V15))
+colnames(promoters)<- c("chr", "anno_start", "anno_end", "anno", "cpg_loc", "region_start", "region_end")
+
+#Factor chrom levels
+promoters$chr<- gsub("chr", "", promoters$chr)
+promoters$chr<- factor(promoters$chr, levels = c(1:22, "X", "Y"))
+
+#Add range column
+promoters<- promoters %>%
   mutate(region_range = paste(as.character(region_start), "-", as.character(region_end)))
 
 ######################################
@@ -66,6 +84,6 @@ re_anno<- right_join(repeats_bed, repeat_intersect, by = c("range", "chr"), keep
 
 write_csv(re_anno, file = "re_annotations.csv")
 write_csv(chmm_intersect, file = "chmm_annotations.csv")
-
+write_csv(promoters, file = "promoters.csv")
 
 
