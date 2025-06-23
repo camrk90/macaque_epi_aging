@@ -2,7 +2,7 @@
 
 library(Rsamtools)
 library(stringr)
-options(scipen=9999999999999)
+options(scipen=999)
 
 lid_pid <- read.table("/scratch/nsnyderm/cayo_rrbs/sort_bam/lid_pid")[,1]
 bam_file <- paste0("/scratch/nsnyderm/cayo_rrbs/sort_bam/",lid_pid,".sort.bam")  # assuming filePaths is a vector of BAM file paths
@@ -53,8 +53,7 @@ cleaned.SAM <- na.omit(SAM)
 
 cleaned.SAM <- cleaned.SAM[,c("CHROM","zero.based.start","zero.based.end","query_name","read.discordance.perc")]
 
-#Remove scientific notation from coordinates
-#cleaned.SAM<- format(cleaned.SAM, scientific=F)
+cleaned.SAM<- cleaned.SAM[cleaned.SAM$CHROM != "MT" & cleaned.SAM$CHROM != "Y",]
 
 write.table(cleaned.SAM,row.names=F,quote=F, 
             file=paste0("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/pdn_out/", lid_pid[i],".PDN_per_read.bed"),

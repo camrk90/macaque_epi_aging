@@ -122,7 +122,7 @@ nested_pqlseq %>%
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   ylab("Count") +
   xlab("Estimate") +
-  theme_classic(base_size = 30)
+  theme_classic(base_size = 36)
 
 #Plot significant hypomethylated estimates
 nested_pqlseq %>%
@@ -250,12 +250,12 @@ sex_hyper %>%
 sex_hypo %>%
   filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
   ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 100, colour = "black", position = 'identity') +
+  geom_histogram(bins = 50, colour = "black", position = 'identity') +
   geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
   scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
   xlab("|Estimate (F)| - |Estimate (M)|") +
   ylab("Hypomethylated Regions") +
-  theme_classic(base_size = 30) +
+  theme_classic(base_size = 36) +
   theme(legend.position = "none")
 
 #Distribution of difference in abs estimates for hypomethylated regions without x-chrom
@@ -276,12 +276,12 @@ sex_hyper %>%
   filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
   #filter(abs_diff > -0.2 & abs_diff < 0.2) %>%
   ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 100, colour = "black", position = 'identity') +
+  geom_histogram(bins = 50, colour = "black", position = 'identity') +
   geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
   scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
   xlab("|Estimate (F)| - |Estimate (M)|") +
   ylab("Hypermethylated Regions") +
-  theme_classic(base_size = 30) +
+  theme_classic(base_size = 36) +
   theme(legend.position = "none")
 
 #Distribution of difference in abs estimates without X-chrom
@@ -311,7 +311,7 @@ sex %>%
   #xlim(-0.5, 0.5) +
   xlab("Estimate (Male)") +
   ylab("Estimate (Female)") +
-  theme_classic(base_size = 30) +
+  theme_classic(base_size = 36) +
   theme(legend.key.height= unit(2, 'cm'))
 
 df3<- sex %>%

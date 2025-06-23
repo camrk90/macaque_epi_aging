@@ -1,13 +1,14 @@
-
-## pre flight: break up reference genome into 200 bp windows using bedtools & use bedtools map to get average per read level PDN values for each 200 bp window 
-
-##handling the per genomic window levels of PDN - each of the 200 bp windows of the genome has the average PDN value of the reads covering it (reads have to be 51% or more within the region) and
-##the number of reads which cover that region
-
-library(dplyr)
+library(tidyverse)
 library(stringr)
 library(readr)
 
+#Import kinship matrix----------------------------------------------------------
+kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
+
+#Subset and rearrange kinship rows and cols to match metadata
+kinship<- kinship[long_data$lid_pid, long_data$lid_pid]
+
+#Import metadata----------------------------------------------------------------
 long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
 long_data<- long_data %>%
   dplyr::rename(sex = individual_sex) %>%
@@ -15,45 +16,129 @@ long_data<- long_data %>%
   arrange(lid_pid)
 
 lid_pid<- long_data$lid_pid
-lid_pid<- paste(lid_pid, ".meanPDN.bed", sep = "")
+lid_pid<- paste(lid_pid, "_meanPDN.bed", sep = "")
 
 ##set unique file ID's
-unique_fileID <- list.files(path = "/scratch/nsnyderm/cayo_rrbs/discordance/",
-                            pattern = "*.meanPDN.bed")
-
-overlap <- read.table(filePaths[1], header = FALSE, fill = TRUE)
+unique_fileID <- list.files(path = "/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/",
+                            pattern = "*_meanPDN.bed")
 
 unique_fileID<- unique_fileID[unique_fileID %in% lid_pid]
 
-
 ##set file paths
-filePaths <- paste0("/scratch/nsnyderm/cayo_rrbs/discordance/", unique_fileID)
+filePaths <- paste0("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/", unique_fileID)
 
 ##loop to calculate PDN
-for(i in 1:length(unique_fileID)){
-  ##read in overlap file written as a plain text file with headers removed
-  overlap <- read.table(filePaths[i], header = FALSE, fill = TRUE)
-  ##replace any regions with less than 5 reads covering it (number of reads is V5)
-  overlap2 <- overlap %>%  mutate_at(vars(V4, V5), ~replace(., V5 <= 4, NA)) ##less than or equal to 4
-  ##rename the avg PDN with sample name
-  assign(paste(unique_fileID[i], "PDN", sep = "_"), overlap2$V4)
-  assign(paste(unique_fileID[i], "reads", sep = "_"), overlap2$V5)
-  rm(overlap) ##remove large files from memory to reduce load
-  rm(overlap2)
+avg_pdn<- data.frame(matrix(nrow=190910, ncol=0))
+read_cov<- data.frame(matrix(nrow=190910, ncol=0))
+overlap<- read.table(filePaths[1], header = FALSE, fill = TRUE)
+
+for(i in 1:5){
+  if (i == 1){
+    print(i)
+    #Read in file
+    overlap<- read.table(filePaths[i], header = FALSE, fill = TRUE)
+    overlap<- overlap %>%
+      dplyr::rename(chrom = V1,
+                    start = V2,
+                    end = V3)
+    overlap$region<- paste(overlap$chrom, overlap$start, overlap$end, sep = "_")
+    overlap<- overlap %>%
+      relocate(region, .before = chrom)
+    
+    pdn<- overlap[c(1, 6)]
+    cov<- overlap[c(1,5)]
+    
+    #Generate unique id
+    id<- paste(unique_fileID[i])
+    id<- gsub("_meanPDN.bed", "", id)
+    
+    #Rename PDN col with unique id
+    pdn<- dplyr::rename_with(pdn, ~ paste0(id), V5)
+    cov<- dplyr::rename_with(cov, ~ paste0(id), V4)
+    
+    #Bind to df
+    avg_pdn<- cbind(avg_pdn, pdn)
+    read_cov<- cbind(read_cov, cov)
+    
+  } else {
+    #Read in file
+    overlap<- read.table(filePaths[i], header = FALSE, fill = TRUE)
+    pdn<- overlap[5]
+    cov<- overlap[4]
+    
+    #Generate unique id
+    id<- paste(unique_fileID[i])
+    id<- gsub("_meanPDN.bed", "", id)
+    
+    #Rename PDN col with unique id
+    pdn<- dplyr::rename_with(pdn, ~ paste0(id), V5)
+    cov<- dplyr::rename_with(cov, ~ paste0(id), V4)
+    
+    #Bind to df
+    avg_pdn<- cbind(avg_pdn, pdn)
+    read_cov<- cbind(read_cov, cov)
+    print(paste(i, "done!", sep = " "))
+  }
 }
 
-##now bind all sample PDN values together with original coordinate values
-coord <- read.table("/scratch/emb19132/GENOME_PDR/RAT/PDN_output/SRR13012807_PDN_overlap.txt",  header = FALSE)
-##give each set of coordinates a name (chrom - V1, start - V2, end - V3)
-coord$region.name <- paste(coord$V1,coord$V2,coord$V3, sep=":")
-assign(paste("genomic_region"), coord$region.name)
+#Convert periods to NA
+avg_pdn[avg_pdn == "."]<- NA
 
-compiled <- cbind(genomic_region, )
+##Filter NAs
+#avg_pdn<- avg_pdn[!rowSums(is.na(avg_pdn)) > ncol(avg_pdn)*.2,] #this filters out rows with more than 20% NAs
+avg_pdn<- drop_na(avg_pdn) #lme4 drops rows with NAs anyway so this code just removes them ahead of time
+read_cov<- read_cov[read_cov$region %in% avg_pdn$region,]
 
-##remove rows with more than 20% NAs
-compiled <- as.data.frame(compiled)
-row.names(compiled) <- compiled$genomic_region
-compiled <- compiled[,c(-1)]
-compiled <- compiled[!rowSums(is.na(compiled)) > ncol(compiled)*.2,] ##remove regions not covered by at least 20% of samples
+rownames(avg_pdn)<- avg_pdn$region
+avg_pdn<- avg_pdn %>%
+  select(-region) %>%
+  t()
 
-write.csv(compiled, file="/scratch/emb19132/GENOME_PDR/RAT/PDN_output/rat_merged_region_PDN.csv")
+rownames(read_cov)<- read_cov$region
+read_cov<- read_cov %>%
+  select(-region) %>%
+  t()
+
+write.csv(compiled, file="/scratch/ckelsey4/Cayo_meth/epigenetic_drift/mean_pdn_all.csv")
+
+#Model Vectors for lme4---------------------------------------------------------
+cov<- regions_cov[[SAMP]]
+meth<- regions_m[[SAMP]]
+
+###################################
+#####        Run PQLseq       #####
+###################################
+#Run PQLseq for within_age-------------------------------------------------------------
+#Generate model matrix
+predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + university, data = long_data)
+w.age_phenotype<- predictor_matrix[, 2]
+w.age_covariates<- predictor_matrix[, 3:4]
+
+#Run pqlseq model
+w.age_pqlseq2_model<- pqlseq2(Y = meth, x = w.age_phenotype, 
+                              K = kinship, W = w.age_covariates, 
+                              lib_size = cov, model="BMM")
+
+#Run PQLseq for mean_age-------------------------------------------------------------
+#Generate model matrix
+m.age_phenotype<- predictor_matrix[, 3]
+m.age_covariates<- predictor_matrix[, c(2,4)]
+
+#Run pqlseq model
+m.age_pqlseq2_model<- pqlseq2(Y = meth, x = m.age_phenotype, 
+                              K = kinship, W = m.age_covariates, 
+                              lib_size = cov, model="BMM")
+
+#Run PQLseq for sex-------------------------------------------------------------
+#Generate model matrix
+predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + university, data = long_data)
+sex_phenotype<- predictor_matrix[, 4]
+sex_covariates<- predictor_matrix[, c(2:3)]
+
+#Run pqlseq model
+sex_pqlseq2_model<- pqlseq2(Y = meth, x = sex_phenotype, 
+                            K = kinship, W = sex_covariates, 
+                            lib_size = cov, model="BMM")
+
+
+
