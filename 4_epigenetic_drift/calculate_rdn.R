@@ -4,9 +4,21 @@ library(tidyverse)
 library(stringr)
 library(readr)
 
+#Import metadata----------------------------------------------------------------
+long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- long_data %>%
+  dplyr::rename(sex = individual_sex) %>%
+  filter(n > 1) %>%
+  arrange(lid_pid)
+
+lid_pid<- long_data$lid_pid
+lid_pid<- paste(lid_pid, "_meanPDN.bed", sep = "")
+
 ##set unique file ID's
 unique_fileID <- list.files(path = "/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/",
                             pattern = "*_meanPDN.bed")
+
+unique_fileID<- unique_fileID[unique_fileID %in% lid_pid]
 
 ##set file paths
 filePaths <- paste0("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/", unique_fileID)
@@ -72,8 +84,8 @@ avg_pdn[avg_pdn == "."]<- NA
 
 ##Filter NAs
 #avg_pdn<- avg_pdn[!rowSums(is.na(avg_pdn)) > ncol(avg_pdn)*.2,] #this filters out rows with more than 20% NAs
-avg_pdn<- drop_na(avg_pdn) #lme4 drops rows with NAs anyway so this code just removes them ahead of time
-read_cov<- read_cov[read_cov$region %in% avg_pdn$region,]
+#avg_pdn<- drop_na(avg_pdn) #lme4 drops rows with NAs anyway so this code just removes them ahead of time
+#read_cov<- read_cov[read_cov$region %in% avg_pdn$region,]
 
 chrs<- str_sort(c(1:20, "X"), numeric = TRUE)
 
