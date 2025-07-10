@@ -1,5 +1,6 @@
 library(tidyverse)
 library(ggplot2)
+library(lme4)
 
 #Import metadata----------------------------------------------------------------
 long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
@@ -40,28 +41,42 @@ mean_cov<- colMeans(read_cov)
 long_data$mean_pdn<- mean_pdn
 long_data$mean_cov<- mean_cov
 
+global_pdn=lmer(mean_pdn ~ within.age + sex + (1 + within.age|monkey_id),
+          data=long_data)
+?lmer
+summary(global_pdn)
+
 #Import avg_pdn per region RDS--------------------------------------------------
 avg_pdn_f<- readRDS("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/_pdn_f")
 avg_pdn_f<- avg_pdn_f %>%
   filter(converged == TRUE)
 padj<- p.adjust(avg_pdn_f$pvalue, method = "fdr")
 avg_pdn_f$padj<- padj
-
-avg_pdn_f %>%
-  filter(padj < 0.05) %>%
-  ggplot(aes(beta)) +
-  geom_histogram(bins=100, colour="black")
+avg_pdn_f$sex<- "f"
 
 avg_pdn_m<- readRDS("/scratch/ckelsey4/Cayo_meth/epigenetic_drift/avg_pdn/_pdn_m")
 padj<- p.adjust(avg_pdn_m$pvalue, method = "fdr")
 avg_pdn_m$padj<- padj
 avg_pdn_m<- avg_pdn_m %>%
   filter(converged == TRUE)
+avg_pdn_m$sex<- "m"
 
-avg_pdn_m %>%
+pdn_full<- rbind(avg_pdn_f, avg_pdn_m)
+pdn_full<- pdn_full %>%
+  group_by(outcome) %>%
+  arrange(max(beta))
+
+pdn_full %>%
   filter(padj < 0.05) %>%
-  ggplot(aes(beta)) +
-  geom_histogram(bins=100, colour="black")
+  ggplot(aes(beta, fill=sex)) +
+  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") + 
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex")
+
+pdn_full %>%
+  ggplot(aes(padj, fill=sex)) +
+  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") + 
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex")
+  
 
 m<- avg_pdn_m[, c("beta", "padj")]
 colnames(m)<- paste(colnames(m), "m", sep="_")
@@ -86,7 +101,8 @@ m_f %>%
   xlab("Estimate (Male)") +
   ylab("Estimate (Female)") +
   theme_classic(base_size = 36) +
-  theme(legend.key.height= unit(2, 'cm'))
+  theme(legend.key.height= unit(2, 'cm')) +
+  ggtitle("padj_f < 0.05 | padj_m < 0.05")
 
 m_f %>%
   filter(padj_f < 0.05 | padj_m < 0.05) %>%
@@ -94,13 +110,13 @@ m_f %>%
   geom_histogram(bins = 100, colour = "black") +
   geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
   scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
-  xlab("|Estimate (F)| - |Estimate (M)|")
+  xlab("|Estimate (F)| - |Estimate (M)|") +
+  ggtitle("padj_f < 0.05 | padj_m < 0.05")
 
 long_data %>%
   ggplot(aes(within.age, mean_pdn, colour=sex)) +
   geom_point() +
   geom_smooth(method = "lm") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = 0, linetype = "dashed")
   
   
