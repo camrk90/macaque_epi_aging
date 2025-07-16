@@ -135,7 +135,7 @@ long_data %>%
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   scale_x_continuous(breaks = seq(0, 30, by=5)) +
   theme_classic(base_size = 24) +
-  labs(y = "Count", x = "Age")
+  labs(y = "Count", x = "Mean Age")
 
 length(unique(long_data$monkey_id))
 
