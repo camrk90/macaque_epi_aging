@@ -175,11 +175,15 @@ prom_paired<- prom_paired %>%
 prom_paired %>%
   filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
   filter(gene_name != "Metazoa_SRP") %>%
-  filter(beta_f < 0 & beta_m < 0) %>%
+  filter(std_beta_f < 0 & std_beta_m < 0) %>%
   arrange(desc(abs_diff)) %>%
   dplyr::slice(1:10, (n()-10):n()) %>%
-  ggplot(aes(abs_diff, reorder(gene_name, abs_diff))) +
-  geom_point() +
+  ggplot(aes(std_diff, reorder(gene_name, std_diff), fill = std_diff)) +
+  #geom_point(aes(size=3)) +
+  geom_col(colour='black')+
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  #scale_fill_discrete(values=c("darkmagenta", "darkolivegreen")) +
+  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
   theme_classic(base_size = 24)
 
 prom_paired %>%
@@ -287,11 +291,11 @@ go_set = split(x = go_set$ensembl_gene, f = go_set$gs_name)
 
 #Generate rank-ordered vector by pqlseq coefficient
 paired_genes<- prom_paired %>% 
-  dplyr::select(outcome, std_diff) %>% 
+  dplyr::select(ensembl_gene, std_diff) %>% 
   arrange(desc(std_diff))
 
 paired_genes2<- paired_genes$std_diff
-names(paired_genes2) = paired_genes$outcome
+names(paired_genes2) = paired_genes$ensembl_gene
 
 test <- gseGO(geneList     = paired_genes2,
               OrgDb        = org.Mmu.eg.db,
@@ -322,53 +326,30 @@ ggplot(sex_gsea, aes(x = reorder(pathway, NES), y = NES, fill = padj)) +
   theme_classic() +
   coord_flip()
 
-#Brandon analysis---------------------------------------------------------------
-genes<- prom_pqlseq %>%
-  filter(gene_name %in% c("ELOVL2", "CXCL10", "GDF11", "FOXO3"))
+####By hallmark pathway
+hallmark_inflam<- hallmark.msigdb %>%
+  filter(gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION")
+hallmark_inflam<- hallmark_inflam %>%
+  dplyr::select(c(gene_symbol, ensembl_gene))
+prom_paired<- prom_paired %>%
+  dplyr::rename(ensembl_gene = outcome)
 
-#Extract genes from perc_meth matrix and bind to metadata
-rownames(perc_meth)<- str_split_i(rownames(perc_meth), "\\.", 2)
+df<- left_join(hallmark_inflam, prom_paired, by = "ensembl_gene")
+df<- df %>% drop_na()
 
-perc_meth<- as.data.frame(t(perc_meth)) %>%
-  dplyr::select(c(ENSMMUG00000013908, ENSMMUG00000020369, ENSMMUG00000006288))
-
-colnames(perc_meth)<- c("ELOVL2", "FOXO3", "GDF11")
-
-long_data<- cbind(long_data, perc_meth)
-
-#Plot genes against age
-long_data %>%
-  ggplot(aes(age_at_sampling, ELOVL2*100)) +
+df %>%
+  ggplot(aes(beta_m, beta_f, colour = abs_diff, label=gene_name)) +
   geom_point() +
-  geom_smooth(method = "glm") +
-  theme_classic(base_size = 32) +
-  scale_x_continuous(breaks = seq(4, 30, by = 4), limits = c(4, 30)) +
-  xlab("Age") +
-  ylab("ELOVL2 %Methylation")
-ggsave("elovl2.jpg", last_plot(), height = 7, width = 6, units = "in")
-
-long_data %>%
-  ggplot(aes(age_at_sampling, GDF11*100)) +
-  geom_point() +
-  geom_smooth(method = "glm") +
-  theme_classic(base_size = 32) +
-  scale_x_continuous(breaks = seq(4, 30, by = 4), limits = c(4, 30)) +
-  xlab("Age") +
-  ylab("GDF11 %Methylation")
-ggsave("gdf11.jpg", last_plot(), height = 7, width = 6, units = "in")
-
-long_data %>%
-  ggplot(aes(age_at_sampling, FOXO3*100)) +
-  geom_point() +
-  geom_smooth(method = "glm") +
-  theme_classic(base_size = 32) +
-  scale_x_continuous(breaks = seq(4, 30, by = 4), limits = c(4, 30)) +
-  xlab("Age") +
-  ylab("FOXO3 %Methylation")
-ggsave("foxo3.jpg", last_plot(), height = 7, width = 6, units = "in")
-
-write.table(genes, file = "blee_genes.txt")
-
+  geom_abline() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  #scale_color_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
+  geom_smooth(method = "lm") +
+  geom_text_repel(alpha=df$fdr_m<0.05, box.padding = 0.5) +
+  xlab("Estimate (Male)") +
+  ylab("Estimate (Female)") +
+  theme_classic(base_size = 30) +
+  theme(legend.key.height= unit(2, 'cm'))
 
 #Save workspace image-----------------------------------------------------------
 save.image("promoter_analysis.RData")
