@@ -12,7 +12,7 @@ library(ggcorrplot)
 library(ggborderline)
 library(ggrepel)
 library(PQLseq)
-library(ggVennDiagram)
+library(ggvenn)
 library(msigdbr)
 library(effectsize)
 options(scipen = 999)
@@ -406,7 +406,7 @@ sex_pqlseq<- sex_pqlseq %>%
 rm(age_w_pqlseq);rm(age_m_pqlseq)
 
 pqlseq_model<- pqlseq_model %>%
-  mutate(abs_diff = abs(beta_age) - abs(beta_mean_age))
+  mutate(age_abs_diff = abs(beta_age) - abs(beta_mean_age))
 
 pqlseq_model %>% 
   distinct(outcome, .keep_all = T) %>% 
@@ -428,14 +428,14 @@ counts<- counts %>%
 rm(age.w.count);rm(age.m.count);rm(sex.count)
 
 counts %>%
-  filter(predictor != "Sex") %>%
+  #filter(predictor != "Sex") %>%
   ggplot(aes(predictor, count, fill = predictor)) +
   geom_bar(stat = 'identity', colour="black") +
-  geom_text(label=counts$count[counts$predictor != "Sex"], vjust=-1, size =5) +
+  geom_text(label=counts$count, vjust=-1, size =5) +
   theme_classic(base_size = 32) +
   xlab("Predictor") +
   ylab("Count") +
-  scale_fill_manual(values = c("hotpink3", "darkgoldenrod2"))
+  scale_fill_manual(values = c("hotpink3", "darkgoldenrod2", "seagreen4"))
 
 ## Significant regions Venn diagram
 age.w<- pqlseq_model$outcome[pqlseq_model$fdr_age < 0.05 & pqlseq_model$chrom != "Y"]
@@ -446,15 +446,10 @@ venn_list<- list(age.w, age.m, sex)
 
 rm(age.w);rm(age.m);rm(sex)
 
-ggVennDiagram(venn_list, 
-              category.names = c("Age Within", "Age Between", "Sex"),
-              label = 'count',
-              label_alpha = 0,
-              label_size = 10,
-              label_color = "black") +
-  scale_x_continuous(expand = expansion(mult = .2)) +
-  scale_fill_gradient(low = "white", high = "white")
-ggsave('venn.svg', plot = last_plot(), width = 10, height = 10)
+ggvenn(venn_list,
+       fill_color = c("hotpink3", "seagreen4", "darkgoldenrod2"),
+       text_size = 8,
+       show_percentage = F)
 
 #Distribution of effect sizes and across the chromosomes
 #Age
@@ -470,7 +465,7 @@ pqlseq_model %>%
 
 pqlseq_model %>%
   filter(fdr_age < .05 | fdr_mean_age < .05) %>%
-  ggplot(aes(beta_mean_age, beta_age, colour = abs_diff)) +
+  ggplot(aes(beta_age, beta_sex, colour = abs_diff)) +
   geom_point() +
   geom_abline() +
   geom_vline(xintercept=0, linetype="dashed") +
@@ -481,17 +476,32 @@ pqlseq_model %>%
   ylab("Age Within") +
   xlab("Age Between")
 
+pqlseq_full %>%
+  filter(fdr_age < .05 & fdr_sex < .05) %>%
+  ggplot(aes(beta_age, beta_sex)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  #scale_color_gradient2(low = "darkgoldenrod2", mid = "white", high = "hotpink3", midpoint = 0, name = "") +
+  theme_classic(base_size=32) +
+  theme(legend.key.height= unit(2, 'cm')) +
+  ylab("Age Within") +
+  xlab("Sex")
+
 log_age<- pqlseq_model %>%
   filter(fdr_age < .05 | fdr_mean_age < .05) %>%
   mutate(log_age = log(abs(beta_age)/abs(beta_mean_age))) %>%
   dplyr::select(log_age)
+
 mean(log_age$log_age)
 
-log_age %>%
+  log_age %>%
   ggplot(aes(log_age, fill = log_age<0)) +
   geom_histogram(colour="black", position = "identity", bins = 100) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
-  scale_fill_manual(values = c("hotpink3", "darkgoldenrod2")) +
+  scale_fill_manual(values = c("hotpink3", "seagreen4")) +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
   ylab("Count") +
@@ -520,10 +530,11 @@ sex_pqlseq %>%
   ggplot(aes(beta, fill=beta>0)) +
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta")) +
+  scale_fill_manual(values = c("darkmagenta", "darkolivegreen")) +
   xlab("Sex Estimate") +
   ylab("Count") +
-  theme_classic(base_size=32)
+  theme_classic(base_size=32) +
+  theme(legend.position = "none")
 
 df<- sex_pqlseq %>%
   dplyr::select(c(chrom, beta, fdr))
