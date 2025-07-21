@@ -1,9 +1,10 @@
 library(tidyverse)
 library(ggplot2)
 library(lme4)
+library(lmerTest)
 
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted", header=T)
 long_data<- long_data %>%
   dplyr::rename(sex = individual_sex) %>%
   filter(n > 1) %>%
@@ -41,9 +42,18 @@ mean_cov<- colMeans(read_cov)
 long_data$mean_pdn<- mean_pdn
 long_data$mean_cov<- mean_cov
 
-global_pdn=lmer(mean_pdn ~ within.age + sex + (1 + within.age|monkey_id),
+long_data %>%
+  ggplot(aes(x=within.age, y=mean_pdn, colour=sex)) +
+  geom_point() +
+  geom_smooth(method="lm") +
+  scale_colour_manual(values=c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  theme_classic(base_size=32) +
+  ylab("Mean Global Disorder") +
+  xlab("Age Within")
+
+global_pdn=lmer(mean_pdn ~ within.age*sex + mean.age + pid + (1 + within.age|monkey_id),
           data=long_data)
-?lmer
+
 summary(global_pdn)
 
 #Import avg_pdn per region RDS--------------------------------------------------
@@ -100,9 +110,9 @@ m_f %>%
   #xlim(-0.3, 0.3) +
   xlab("Estimate (Male)") +
   ylab("Estimate (Female)") +
-  theme_classic(base_size = 36) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ggtitle("padj_f < 0.05 | padj_m < 0.05")
+  theme_classic(base_size = 32) +
+  theme(legend.key.height= unit(2, 'cm'))
+  #ggtitle("padj_f < 0.05 | padj_m < 0.05")
 
 m_f %>%
   filter(padj_f < 0.05 | padj_m < 0.05) %>%
@@ -111,13 +121,24 @@ m_f %>%
   geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
   scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
   xlab("|Estimate (F)| - |Estimate (M)|") +
-  ggtitle("padj_f < 0.05 | padj_m < 0.05")
+  ylab("Count") +
+  theme_classic(base_size=32) +
+  theme(legend.title = element_blank(), legend.key.height= unit(2, 'cm')) 
 
-long_data %>%
-  ggplot(aes(within.age, mean_pdn, colour=sex)) +
+reg<- t(avg_pdn[rownames(avg_pdn) == "5.5_108101844_108102998",])
+reg<- cbind(reg, long_data[, 6:7])
+reg<- reg %>%
+  rename(region = "5.5_108101844_108102998")
+
+reg %>%
+  filter(region < 0.95) %>%
+  ggplot(aes(x=within.age, y=region, colour=sex)) +
   geom_point() +
-  geom_smooth(method = "lm") +
-  geom_vline(xintercept = 0, linetype = "dashed")
+  geom_smooth(method="lm") +
+  scale_colour_manual(values=c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  theme_classic(base_size=32) +
+  ylab("Region Disorder") +
+  xlab("Age Within")
   
   
 

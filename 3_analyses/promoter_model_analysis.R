@@ -201,7 +201,7 @@ sig_proms<- prom_paired %>%
   filter(gene_name != "Metazoa_SRP")
 
 sig_proms %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
+  ggplot(aes(beta_m, beta_f, colour = abs_diff, label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),''))) +
   geom_point() +
   geom_abline() +
   geom_hline(yintercept = 0, linetype = "dashed") +
@@ -210,12 +210,14 @@ sig_proms %>%
   geom_smooth(method = "lm") +
   xlab("Estimate (Male)") +
   ylab("Estimate (Female)") +
-  geom_text(aes(label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),'')), 
-            colour ='black', 
-            hjust=0.9,
-            vjust=1) +
+  geom_text_repel(colour="black", max.overlaps = Inf, min.segment.length = 0, size = 8, force = 2) +
   theme_classic(base_size = 30) +
   theme(legend.key.height= unit(2, 'cm'))
+
+geom_text(aes(label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),'')), 
+          colour ='black', 
+          hjust=0.9,
+          vjust=1) +
 
 #Plot promoter estimates--------------------------------------------------------
 prom_pqlseq %>%
@@ -274,7 +276,7 @@ prom_pqlseq %>%
 #Categorical enrichment
 ################################################################################
 #Generate hallmark gene set
-hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "H")
+hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "C7")
 hallmark.msigdb = split(x = hallmark.msigdb$ensembl_gene, f = hallmark.msigdb$gs_name)
 
 paths<- hallmark.msigdb %>%
