@@ -201,23 +201,21 @@ sig_proms<- prom_paired %>%
   filter(gene_name != "Metazoa_SRP")
 
 sig_proms %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff, label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),''))) +
+  ggplot(aes(beta_m, beta_f, colour = abs_diff, 
+             label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),''))) +
   geom_point() +
   geom_abline() +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = 0, linetype = "dashed") +
   scale_color_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
   geom_smooth(method = "lm") +
-  xlab("Estimate (Male)") +
-  ylab("Estimate (Female)") +
+  xlab("Beta (Male)") +
+  ylab("Beta (Female)") +
   geom_text_repel(colour="black", max.overlaps = Inf, min.segment.length = 0, size = 8, force = 2) +
-  theme_classic(base_size = 30) +
+  theme_classic(base_size = 16) +
   theme(legend.key.height= unit(2, 'cm'))
 
-geom_text(aes(label=ifelse(abs_diff > 0.1 | abs_diff< -0.1, as.character(gene_name),'')), 
-          colour ='black', 
-          hjust=0.9,
-          vjust=1) +
+cor.test(sig_proms$beta_f, sig_proms$beta_m)
 
 #Plot promoter estimates--------------------------------------------------------
 prom_pqlseq %>%
@@ -276,7 +274,7 @@ prom_pqlseq %>%
 #Categorical enrichment
 ################################################################################
 #Generate hallmark gene set
-hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "C7")
+hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "H")
 hallmark.msigdb = split(x = hallmark.msigdb$ensembl_gene, f = hallmark.msigdb$gs_name)
 
 paths<- hallmark.msigdb %>%
@@ -293,11 +291,32 @@ go_set = split(x = go_set$ensembl_gene, f = go_set$gs_name)
 
 #Generate rank-ordered vector by pqlseq coefficient
 paired_genes<- prom_paired %>% 
-  dplyr::select(ensembl_gene, std_diff) %>% 
+  dplyr::select(outcome, std_diff) %>% 
   arrange(desc(std_diff))
 
 paired_genes2<- paired_genes$std_diff
-names(paired_genes2) = paired_genes$ensembl_gene
+names(paired_genes2) = paired_genes$outcome
+
+f_genes<- prom_paired %>% 
+  dplyr::select(outcome, std_beta_f) %>% 
+  arrange(desc(std_beta_f))
+
+f_genes2<- f_genes$std_beta_f
+names(f_genes2) = f_genes$outcome
+
+m_genes<- prom_paired %>% 
+  dplyr::select(outcome, std_beta_m) %>% 
+  arrange(desc(std_beta_m))
+
+m_genes2<- m_genes$std_beta_m
+names(m_genes2) = m_genes$outcome
+
+#Enrichment for Hallmark set
+m_gsea<- fgsea(pathways = hallmark.msigdb, 
+                    stats    = m_genes2,
+                    minSize  = 15,
+                    maxSize  = 500,
+                    eps = 0.0)
 
 test <- gseGO(geneList     = paired_genes2,
               OrgDb        = org.Mmu.eg.db,
@@ -307,25 +326,15 @@ test <- gseGO(geneList     = paired_genes2,
               pvalueCutoff = 0.05,
               verbose      = FALSE)
 
-
-
-#Enrichment for Hallmark set
-paired_gsea<- fgsea(pathways = hallmark.msigdb, 
-               stats    = paired_genes2,
-               minSize  = 15,
-               maxSize  = 500,
-               eps = 0.0)
-
-#Assign pathway variable as factor for plotting
-sex_gsea<- sex_gsea %>%
-  mutate_at(vars(pathway), as.factor) %>%
-  mutate(pathway = fct_reorder(pathway, ES))
+m_gsea$sex<- "M"
+f_gsea$sex<- "F"
+sex_gsea<- rbind(m_gsea, f_gsea)
 
 #Plot hallmark enrichment
-ggplot(sex_gsea, aes(x = reorder(pathway, NES), y = NES, fill = padj)) +
-  geom_col(colour="black") +
-  scale_fill_distiller(palette="BuGn") +
-  theme_classic() +
+ggplot(sex_gsea, aes(x = reorder(pathway, NES), y = NES, fill = sex)) +
+  geom_col(colour="black", position = "dodge2", alpha = sex_gsea$padj > 0.10) +
+  scale_fill_manual(values=c("darkolivegreen", "darkmagenta")) +
+  theme_classic(base_size=16) +
   coord_flip()
 
 ####By hallmark pathway
