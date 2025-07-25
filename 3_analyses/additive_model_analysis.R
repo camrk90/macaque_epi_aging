@@ -458,7 +458,7 @@ pqlseq_model %>%
   ggplot(aes(beta_age, fill = beta_age>0)) +
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
-  scale_fill_manual(values = c("slateblue3", "orangered2")) +
+  scale_fill_manual(values = c("hotpink4", "hotpink")) +
   xlab("Age Estimate") +
   ylab("Count") +
   theme_classic(base_size=32)
@@ -473,8 +473,8 @@ pqlseq_model %>%
   scale_color_gradient2(low = "darkgoldenrod2", mid = "white", high = "hotpink3", midpoint = 0, name = "") +
   theme_classic(base_size=32) +
   theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Age Within") +
-  xlab("Age Between")
+  ylab("Sex") +
+  xlab("Age Within")
 
 pqlseq_full %>%
   filter(fdr_age < .05 & fdr_sex < .05) %>%
@@ -497,10 +497,11 @@ log_age<- pqlseq_model %>%
 
 mean(log_age$log_age)
 
-  log_age %>%
+log_age %>%
   ggplot(aes(log_age, fill = log_age<0)) +
   geom_histogram(colour="black", position = "identity", bins = 100) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  geom_vline(xintercept = median(log_age$log_age), linetype = "dashed", colour = "green") +
   scale_fill_manual(values = c("hotpink3", "seagreen4")) +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
@@ -526,7 +527,7 @@ df %>%
 
 #Sex
 sex_pqlseq %>%
-  filter(fdr < 0.05) %>%
+  #filter(fdr < 0.05) %>%
   ggplot(aes(beta, fill=beta>0)) +
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
@@ -536,10 +537,28 @@ sex_pqlseq %>%
   theme_classic(base_size=32) +
   theme(legend.position = "none")
 
+#Without X-chrom
+sex_pqlseq %>%
+  filter(chr != "X") %>%
+  ggplot(aes(beta, fill=beta>0)) +
+  geom_histogram(bins=100, colour="black") +
+  geom_vline(xintercept=0, linetype="dashed") +
+  scale_fill_manual(values = c("darkmagenta", "darkolivegreen")) +
+  xlab("Sex Estimate") +
+  ylab("Count") +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none")
+
+nrow(sex_pqlseq %>%
+  filter(fdr < 0.05 & chr != "X"))
+
+nrow(sex_pqlseq %>%
+       filter(fdr < 0.05))
+
 df<- sex_pqlseq %>%
-  dplyr::select(c(chrom, beta, fdr))
+  dplyr::select(c(chr, beta, fdr))
 df$type<- "autosomes"
-df$type[df$chrom == "X"]<- "X"
+df$type[df$chr == "X"]<- "X"
 
 df %>%
   filter(fdr < 0.05) %>%
@@ -556,8 +575,8 @@ rm(df)
   
 #Distribution of coefficients for age and sex combined
 age_sex<- pqlseq_model %>% 
-  filter(chrom != "Y") %>%
-  dplyr::select(c(fdr_age, beta_age))
+  filter(chr != "Y") %>%
+  dplyr::select(c(chr, fdr_age, beta_age))
 age_sex<- cbind(age_sex, sex_pqlseq[,c(9,12)])
 
 age_sex$direction[age_sex$beta_age > 0 & age_sex$beta > 0]<- "Both Positive"
@@ -570,7 +589,7 @@ age_sex<- age_sex %>%
   mutate(direction=reorder(direction, direction, FUN=length))
 
 age_sex %>%
-  filter(fdr_age < 0.05 & fdr < 0.05) %>%
+  filter(fdr_age < 0.05 & fdr < 0.05 & chr != "X") %>%
   ggplot(aes(beta_age, beta)) +
   geom_point(aes(colour=direction)) +
   geom_smooth(method = "lm") +
@@ -578,7 +597,7 @@ age_sex %>%
   theme(legend.position = "none") +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_colour_brewer(palette = "Set2") +
+  scale_colour_brewer(palette = "Set3") +
   ylab("Sex Estimate") +
   xlab("Age Estimate")
 
@@ -593,7 +612,7 @@ age_sex %>%
   theme_classic(base_size = 32) +
   theme(axis.text.x=element_blank()) +
   theme(legend.position = "none") +
-  scale_fill_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set3") +
   ylab("Count") +
   xlab("Direction")
 
@@ -720,6 +739,11 @@ pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "LTR?",]
 pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "RC?",]
 pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "Unspecified",]
 
+pqlseq_re$anno_class<- "Simple Repeats"
+pqlseq_re$anno_class[pqlseq_re$annotation %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
+pqlseq_re$anno_class[pqlseq_re$annotation %in% "DNA"]<- "Transposable Elements Class II"
+pqlseq_re$anno_class[pqlseq_re$annotation %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
+
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "Unknown",]
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "DNA?",]
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "LTR?",]
@@ -840,19 +864,6 @@ sex_pqlseq_chmm %>%
 ######################################
 ###           ENRICHMENT           ###   
 ######################################
-#Generate wide dataframe for enrichment (0s,1s for annotations)-----------------
-#Select cols
-enrich_df<- pqlseq_full %>% 
-  dplyr::select(anno, outcome, beta_age, fdr_age, beta_sex, fdr_sex)
-#Add col with 1s for pivot_wider values arg and pivot
-enrich_df$a<- 1
-enrich_df<- enrich_df %>%
-  pivot_wider(names_from = anno, values_from = a)
-#Assign 0 to NAs (instances where a region does not overlap an annotation)
-enrich_df[is.na(enrich_df)]<- 0
-
-chmm<- as.factor(annotations_ordered[1:15])
-
 #Class enrichment---------------------------------------------
 class_enrichment<- function(model_df, var_opt){
   
