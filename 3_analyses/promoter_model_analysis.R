@@ -246,29 +246,20 @@ x_prom %>%
   theme_classic()
 
 prom_pqlseq %>%
-  filter(fdr_f < 0.05 & fdr_m < 0.05) %>%
-  pivot_longer(cols=c(beta_f, beta_m), names_to = "sex", values_to = "beta") %>%
+  ggplot(aes(beta_agew, fill=beta_agew>0)) +
+  geom_histogram(bins=50, colour="black", position="identity") +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("hotpink4", "hotpink")) +
+  theme_classic(base_size=24)
+
+
+prom_nested %>% 
   ggplot(aes(beta, fill=sex)) +
-  geom_histogram(position = "identity", bins = 200, colour="black", alpha = 0.5) +
-  theme_classic(base_size = 24)
-
-prom_pqlseq %>%
-  filter(fdr_f < 0.05 & fdr_m < 0.05) %>%
-  pivot_longer(cols=c(beta_f, beta_m), names_to = "sex", values_to = "beta") %>%
-  ggplot(aes(sex, beta, group = outcome)) +
-  geom_point(alpha = 0.7) +
-  geom_path(alpha = 0.3) +
-  theme_classic(base_size = 24) +
-  ylab("Beta") + xlab("") +
-  scale_x_discrete(labels = c("Female", "Male"))
-
-prom_pqlseq %>%
-  filter(!gene_name == "Metazoa_SRP" | gene_name == "NA") %>%
-  arrange(beta_m) %>%
-  filter(fdr_m < 0.05) %>%
-  dplyr::slice_head(n=10) %>%
-  ggplot(aes(beta_m, gene_name)) +
-  geom_col()
+  #geom_histogram(bins=50, colour="black", alpha = 0.5, position = "identity") +
+  geom_density(alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values=c("darkolivegreen", "darkmagenta")) +
+  theme_classic(base_size=24)
 
 ################################################################################
 #Categorical enrichment
