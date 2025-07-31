@@ -11,6 +11,7 @@ library(ggpubr)
 library(ggcorrplot)
 library(ggborderline)
 library(ggrepel)
+library(ggridges)
 library(PQLseq)
 library(ggvenn)
 library(msigdbr)
@@ -277,14 +278,14 @@ age<- glm_model.t %>%
 ######################################
 setwd('/scratch/ckelsey4/Cayo_meth/glmer_model_compare')
 #Import additive pqlseq files---------------------------------------------------
-import_pqlseq<- function(x, v){
+import_pqlseq<- function(x, v, y){
   
   if (v == "age") {
     
     #Generate list of file names
     file_list<- list.files(pattern = x)
     
-    if (grepl("age", x,  fixed = T) == T){
+    if (y == 5){
       file_order<- str_split_i(file_list, "_", 5)
     } else {
       file_order<- str_split_i(file_list, "_", 4)
@@ -295,10 +296,11 @@ import_pqlseq<- function(x, v){
     
     #Rename list elements
     names(model_list)<- file_order
+    model_list<- model_list[1:21]
     
     #Bind model list to df and add rownames
     model<- do.call(rbind, model_list)
-    model$outcome<- ifelse(startsWith(model$outcome, "Y"), str_split_i(model$outcome, "\\.", 2), str_split_i(model$outcome, "\\.", 3))
+    model$outcome<- str_split_i(model$outcome, "\\.", 3)
     model$outcome2<- model$outcome
     
     #Separate region coordinates into start and end, delete the chr col, and move region col to front
@@ -331,7 +333,7 @@ import_pqlseq<- function(x, v){
     #Generate list of file names
     file_list<- list.files(pattern = x)
     
-    if (grepl("age", x,  fixed = T) == T){
+    if (y == 5){
       file_order<- str_split_i(file_list, "_", 5)
     } else {
       file_order<- str_split_i(file_list, "_", 4)
@@ -375,49 +377,45 @@ import_pqlseq<- function(x, v){
   }
 }
 
+#Chronological Age
+chron_age_files<- 'wb_pqlseq2_agechron'
+chron_age_pqlseq<- import_pqlseq(chron_age_files, v = "age", y = 4)
+
 #Age Within
 age_w_files<- 'wb_pqlseq2_within_age'
-age_w_pqlseq<- import_pqlseq(age_w_files, v = "age")
+age_w_pqlseq<- import_pqlseq(age_w_files, v = "age", y = 5)
 
 #Mean Age
 age_m_files<- 'wb_pqlseq2_mean_age'
-age_m_pqlseq<- import_pqlseq(age_m_files, v = "age")
+age_m_pqlseq<- import_pqlseq(age_m_files, v = "age", y = 5)
 
 #Sex
 sex_files<- 'wb_pqlseq2_sex'
-sex_pqlseq<- import_pqlseq(sex_files, v = "sex")
+sex_pqlseq<- import_pqlseq(sex_files, v = "sex", y = 4)
 
 #Rename cols for each df to indicate variable
-colnames(age_w_pqlseq)<- c("outcome", "length", "chrom", "chromStart", "chromEnd", "n", paste(names(age_w_pqlseq[,7:14]), "age", sep = "_"))
+colnames(age_w_pqlseq)<- c("outcome", "length", "chr", "chromStart", "chromEnd", "n", 
+                           paste(names(age_w_pqlseq[,7:14]), "age", sep = "_"), "region_range")
 colnames(age_m_pqlseq)<- c(paste(names(age_m_pqlseq), "mean_age", sep = "_"))
+colnames(chron_age_pqlseq)<- c(paste(names(chron_age_pqlseq), "chron_age", sep = "_"))
 
 #Cbind cols for age and sex dfs
-pqlseq_model<- cbind(age_w_pqlseq, age_m_pqlseq[,7:14])
+pqlseq_model<- cbind(age_w_pqlseq, age_m_pqlseq[,7:14], chron_age_pqlseq[,7:14])
 
 #Sort chromosome factors
 sorted_labels<- str_sort(unique(pqlseq_model$chr), numeric=T)
 pqlseq_model<- pqlseq_model %>%
   mutate(chr = factor(chr, levels = sorted_labels)) %>%
-  arrange(chrom)
+  arrange(chr)
 sex_pqlseq<- sex_pqlseq %>%
   mutate(chr = factor(chr, levels = sorted_labels[1:21])) %>%
   arrange(chr)
   
-rm(age_w_pqlseq);rm(age_m_pqlseq)
+rm(age_w_pqlseq);rm(age_m_pqlseq);rm(chron_age_pqlseq)
 
-pqlseq_model<- pqlseq_model %>%
-  mutate(age_abs_diff = abs(beta_age) - abs(beta_mean_age))
-
-pqlseq_model %>% 
-  distinct(outcome, .keep_all = T) %>% 
-  ggplot(aes(length)) + 
-  geom_histogram(bins=100) +
-  theme_classic() +
-  scale_x_continuous(breaks = seq(0, max(pqlseq_full$length), by=1000))
-
-#Plot pqlseq features------------------------------------------------------------
-age.w.count<- nrow(pqlseq_model[pqlseq_model$fdr_age < 0.05 & pqlseq_model$chrom != "Y",])
-age.m.count<- nrow(pqlseq_model[pqlseq_model$fdr_mean_age < 0.05 & pqlseq_model$chrom != "Y",])
+#Plot pqlseq features-----------------------------------------------------------
+age.w.count<- nrow(pqlseq_model[pqlseq_model$fdr_age < 0.05,])
+age.m.count<- nrow(pqlseq_model[pqlseq_model$fdr_mean_age < 0.05,])
 sex.count<- nrow(sex_pqlseq[sex_pqlseq$fdr < 0.05,])
 counts<- data.frame(count = c(age.w.count, age.m.count, sex.count),
                     predictor = as.factor(c('Age Within', 'Age Between', 'Sex')))
@@ -458,7 +456,7 @@ pqlseq_model %>%
   ggplot(aes(beta_age, fill = beta_age>0)) +
   geom_histogram(bins=100, colour="black") +
   geom_vline(xintercept=0, linetype="dashed") +
-  scale_fill_manual(values = c("hotpink4", "hotpink")) +
+  scale_fill_manual(values = c("hotpink3", "hotpink")) +
   xlab("Age Estimate") +
   ylab("Count") +
   theme_classic(base_size=32)
@@ -670,11 +668,20 @@ rm(df1);rm(df2)
 ######################################
 ###      JOIN INTERSECT FILES      ###   
 ######################################
-setwd("/scratch/ckelsey4/Cayo_meth")
 ##Import annotation files-------------------------------------------------------
-re_anno<- read_csv("re_annotations.csv")
-chmm_intersect<- read_csv("chmm_annotations.csv")
+re_anno<- read_csv("/scratch/ckelsey4/Cayo_meth/re_annotations.csv")
+chmm_intersect<- read_csv("/scratch/ckelsey4/Cayo_meth/chmm_annotations.csv")
+promoters<- read_csv("/scratch/ckelsey4/Cayo_meth/promoters.csv")
 
+#Promoters----------------------------------------------------------------------
+pqlseq_prom<- left_join(promoters, pqlseq_model, by = c("region_range", "chr"))
+pqlseq_prom<- pqlseq_prom %>%
+  drop_na() %>%
+  distinct(anno, .keep_all = T)
+pqlseq_prom$anno_class<- "Promoter"
+pqlseq_prom<- pqlseq_prom %>%
+  dplyr::select(-c(chromStart, chromEnd, outcome))
+  
 #CHMM---------------------------------------------------------------------------
 #Join pqlseq model and chmm 
 pqlseq_chmm<- left_join(chmm_intersect, pqlseq_model, by = c("region_range", "chr"))
@@ -698,23 +705,23 @@ pqlseq_chmm$anno<- factor(pqlseq_chmm$anno, levels = rev(annotations_ordered))
 sex_pqlseq_chmm$anno<- factor(sex_pqlseq_chmm$anno, levels = rev(annotations_ordered))
 
 #Create column of broad categories for annotations
-pqlseq_chmm$chmm_class<- "A"
-pqlseq_chmm$chmm_class[pqlseq_chmm$anno %in% annotations_ordered[1:2]]<- "Transcription Start Sites"
-pqlseq_chmm$chmm_class[pqlseq_chmm$anno %in% annotations_ordered[3:5]]<- "Active Transcription"
-pqlseq_chmm$chmm_class[pqlseq_chmm$anno %in% annotations_ordered[6:8]]<- "Enhancer Regions"
-pqlseq_chmm$chmm_class[pqlseq_chmm$anno %in% annotations_ordered[9:15]]<- "Quiescent States"
+#pqlseq_chmm$anno_class<- "A"
+pqlseq_chmm$anno_class<- "Transcription Start Sites"
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[3:5]]<- "Active Transcription"
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[6:8]]<- "Enhancer Regions"
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[9:15]]<- "Quiescent States"
 
 #Create column of broad categories for annotations
-sex_pqlseq_chmm$chmm_class<- "A"
-sex_pqlseq_chmm$chmm_class[sex_pqlseq_chmm$anno %in% annotations_ordered[1:2]]<- "Transcription Start Sites"
-sex_pqlseq_chmm$chmm_class[sex_pqlseq_chmm$anno %in% annotations_ordered[3:5]]<- "Active Transcription"
-sex_pqlseq_chmm$chmm_class[sex_pqlseq_chmm$anno %in% annotations_ordered[6:8]]<- "Enhancer Regions"
-sex_pqlseq_chmm$chmm_class[sex_pqlseq_chmm$anno %in% annotations_ordered[9:15]]<- "Quiescent States"
+sex_pqlseq_chmm$anno_class<- "A"
+sex_pqlseq_chmm$anno_class[sex_pqlseq_chmm$anno %in% annotations_ordered[1:2]]<- "Transcription Start Sites"
+sex_pqlseq_chmm$anno_class[sex_pqlseq_chmm$anno %in% annotations_ordered[3:5]]<- "Active Transcription"
+sex_pqlseq_chmm$anno_class[sex_pqlseq_chmm$anno %in% annotations_ordered[6:8]]<- "Enhancer Regions"
+sex_pqlseq_chmm$anno_class[sex_pqlseq_chmm$anno %in% annotations_ordered[9:15]]<- "Quiescent States"
 
 #Set classes as factors
 class_factors<- c("Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States")
-pqlseq_chmm$chmm_class<- factor(pqlseq_chmm$chmm_class, levels = rev(class_factors))
-sex_pqlseq_chmm$chmm_class<- factor(sex_pqlseq_chmm$chmm_class, levels = rev(class_factors))
+pqlseq_chmm$anno_class<- factor(pqlseq_chmm$anno_class, levels = rev(class_factors))
+sex_pqlseq_chmm$anno_class<- factor(sex_pqlseq_chmm$anno_class, levels = rev(class_factors))
 
 #REPEAT ELEMENTS----------------------------------------------------------------
 #Join repeats annotations and glm_models df
@@ -740,9 +747,14 @@ pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "RC?",]
 pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "Unspecified",]
 
 pqlseq_re$anno_class<- "Simple Repeats"
-pqlseq_re$anno_class[pqlseq_re$annotation %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
-pqlseq_re$anno_class[pqlseq_re$annotation %in% "DNA"]<- "Transposable Elements Class II"
-pqlseq_re$anno_class[pqlseq_re$annotation %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% "DNA"]<- "Transposable Elements Class II"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
+
+pqlseq_re<- pqlseq_re %>%
+  dplyr::rename(anno = repClass) %>%
+  dplyr::select(-c(repName, chromStart, chromEnd)) %>%
+  dplyr::relocate(anno, .after = anno_end)
 
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "Unknown",]
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "DNA?",]
@@ -750,122 +762,72 @@ sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "LTR?",]
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "RC?",]
 sex_pqlseq_re<- sex_pqlseq_re[!sex_pqlseq_re$repClass == "Unspecified",]
 
+#Bind annotation dfs together---------------------------------------------------
+pqlseq_anno<- rbind(pqlseq_chmm, pqlseq_re, pqlseq_prom)
+
+annos<- c("Promoter", "Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States", "Simple Repeats",
+          "Transposable Elements Class I", "Transposable Elements Class II", "Structural RNAs")
+
+pqlseq_anno$anno_source<- "Repeat Elements"
+pqlseq_anno$anno_source[pqlseq_anno$anno_class == "Transcription Start Sites" | pqlseq_anno$anno_class == "Active Transcription" |
+                        pqlseq_anno$anno_class == "Enhancer Regions" | pqlseq_anno$anno_class == "Quiescent States" | 
+                        pqlseq_anno$anno_class == "Promoter"]<- "Transcription"
+
+pqlseq_anno<- pqlseq_anno %>%
+  arrange(anno_source, anno_class)
+
+#Rearrange factors to sort by type then log_or
+pqlseq_anno$anno_class<- factor(pqlseq_anno$anno_class, levels = rev(annos))
+
+pqlseq_anno<- pqlseq_anno %>%
+  dplyr::relocate(c(anno_class, anno_source), .after=anno)
+
+pqlseq_anno$signif<- "Non-Signficant"
+pqlseq_anno$signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
+pqlseq_anno$signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
+
 #Plot annotation basics---------------------------------------------------------
-#Age
-pqlseq_re %>%
-  filter(fdr_age < .05) %>%
-  ggplot(aes(repClass, beta_age, colour=repClass)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
+d2 <- pqlseq_anno %>% 
+  group_by(anno_class, signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+d3<- pqlseq_anno %>%
+  group_by(signif) %>%
+  summarise(count = n()) %>%
+  mutate(perc = count/sum(count))
+
+d3$anno_class<- "All"
+
+d3<- d3 %>%
+  dplyr::relocate(anno_class, .before = signif)
+
+d2 %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=d2$count, hjust=-2) +
   theme_classic(base_size=32) +
   theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Repeat Class") +
-  ylab("Age Estimate")
+  scale_fill_manual(values = c("hotpink", "gray90", "hotpink3")) +
+  ylab("Annotation") +
+  xlab("Percentage")
 
-pqlseq_chmm %>%
-  filter(fdr_age < .05) %>%
-  ggplot(aes(anno, beta_age, colour=anno)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
+d3 %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=d3$count) +
   theme_classic(base_size=32) +
   theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Annotation") +
-  ylab("Age Estimate") +
-  coord_flip()
-
-pqlseq_chmm %>%
-  filter(fdr_age < .05) %>%
-  ggplot(aes(chmm_class, beta_age, colour=chmm_class)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  ylab("Age Estimate") +
-  xlab("CHMM Class") +
-  coord_flip()
-
-#Sex
-sex_pqlseq_re %>%
-  filter(fdr < .05) %>%
-  ggplot(aes(repClass, beta, colour=repClass)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Repeat Class") +
-  ylab("Sex Estimate")
-
-sex_pqlseq_re %>%
-  filter(fdr < .05 & chr != "X") %>%
-  ggplot(aes(repClass, beta, colour=repClass)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Repeat Class") +
-  ylab("Sex Estimate")
-
-sex_pqlseq_chmm %>%
-  filter(fdr < .05) %>%
-  ggplot(aes(anno, beta, colour=anno)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Annotation") +
-  ylab("Sex Estimate") +
-  coord_flip()
-
-sex_pqlseq_chmm %>%
-  filter(fdr < .05 & chr != "X") %>%
-  ggplot(aes(anno, beta, colour=anno)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Annotation") +
-  ylab("Sex Estimate") +
-  coord_flip()
-
-sex_pqlseq_chmm %>%
-  filter(fdr < .05) %>%
-  ggplot(aes(chmm_class, beta, colour=chmm_class)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  ylab("Sex Estimate") +
-  xlab("CHMM Class") +
-  coord_flip()
-
-#No x-chrom
-sex_pqlseq_chmm %>%
-  filter(fdr < .05 & chr != "X") %>%
-  ggplot(aes(chmm_class, beta, colour=chmm_class)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  ylab("Sex Estimate") +
-  xlab("CHMM Class") +
-  coord_flip()
-
-
+  scale_fill_manual(values = c("hotpink", "grey90", "hotpink3")) +
+  ylab("Annotation") +
+  xlab("Percentage")
 
 ######################################
 ###           ENRICHMENT           ###   
 ######################################
 #Class enrichment---------------------------------------------
-class_enrichment<- function(model_df, var_opt){
+#Need to adjust sex and both in these functions
+hypo_enrichment<- function(model_df, var_opt){
   
   df_list<- list()
   
@@ -901,8 +863,61 @@ class_enrichment<- function(model_df, var_opt){
   } else if (var_opt=="age") {
     
     #filter model for negative sex estimates
+    df<- model_df
+    
+    #create list of contingency tables for sex
+    for(i in unique(df$anno_class)){
+      
+      #Counts for fdr < 0.05 & beta < 0
+      a<- nrow(df[df$fdr_age < 0.05 & df$beta_age < 0 & df$anno_class == i,])
+      b<- nrow(df[df$fdr_age > 0.05 & df$beta_age < 0 & df$anno_class != i,])
+      
+      #Counts for a) negative estimates and b) positive estimates for all other classes
+      c<- nrow(df[df$fdr_age > 0.05 & df$anno_class == i,])
+      d<- nrow(df[df$fdr_age > 0.05 & df$anno_class != i,])
+      
+      #Generate contingency table - cols are class, rows are direction
+      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
+                           "fdr>0.05" = c(c, d),
+                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
+      
+      df_list[[length(df_list)+1]] = c_table
+      
+      print(c_table)
+    }
+  }
+  
+  #name table list
+  names(df_list)<- unique(df$anno_class)
+  
+  #Fisher test for each table and tidy with broom
+  ft<- lapply(df_list, fisher.test)
+  ft<- lapply(ft, broom::tidy)
+  
+  ft<- do.call(rbind, ft)
+  ft<- ft %>%
+    mutate(annotation = rownames(ft))
+  
+  #FDR p-val adjustment
+  ft<- ft %>%
+    mutate(padj = p.adjust(p.value)) %>%
+    mutate_at(vars(annotation), as.factor)
+  
+  #Log estimates and CIs
+  ft<- ft %>%
+    mutate(log_or = log(estimate),
+           log_ci.lo = log(conf.low),
+           log_ci.hi = log(conf.high))
+}
+hyper_enrichment<- function(model_df, var_opt){
+  
+  df_list<- list()
+  
+  if (var_opt=="sex") {
+    
+    #filter model for negative sex estimates
     df<- model_df %>%
-      filter(fdr_age < 0.05)
+      filter(fdr_sex < 0.05)
     
     #create list of contingency tables for sex
     for(i in unique(df$class)){
@@ -910,15 +925,15 @@ class_enrichment<- function(model_df, var_opt){
       cl<- df[df$class == i,]
       
       #Counts for a) negative estimates and b) positive estimates with the focal class
-      a<- nrow(cl[cl$beta_age < 0,])
-      b<- nrow(cl[cl$beta_age > 0,])
+      a<- nrow(cl[cl$beta_sex < 0,])
+      b<- nrow(cl[cl$beta_sex > 0,])
       
       #Filter out regions that overlap the focal class
       non_cl<- df[!df$outcome %in% cl$outcome,]
       
       #Counts for a) negative estimates and b) positive estimates for all other classes
-      c<- nrow(non_cl[non_cl$beta_age < 0,])
-      d<- nrow(non_cl[non_cl$beta_age > 0,])
+      c<- nrow(non_cl[non_cl$beta_sex < 0,])
+      d<- nrow(non_cl[non_cl$beta_sex > 0,])
       
       #Generate contingency table - cols are class, rows are direction
       c_table<- data.frame(classY = c(a, b),
@@ -926,44 +941,36 @@ class_enrichment<- function(model_df, var_opt){
                            row.names = c("negY", "negN"))
       
       df_list[[length(df_list)+1]] = c_table
-    }
-  } else if (var_opt=="both") {
+    } 
+  } else if (var_opt=="age") {
     
     #filter model for negative sex estimates
-    df<- df %>%
-      filter(fdr_sex < 0.05 & fdr_sex < 0.05)
+    df<- model_df
     
     #create list of contingency tables for sex
-    for(i in unique(df$class)){
-      #Filter for specific class
-      cl<- df[df$class == i,]
+    for(i in unique(df$anno_class)){
       
-      #Counts for a) negative estimates and b) all other estimates with the focal class
-      a<- cl[cl$beta_age < 0 & cl$beta_sex < 0,]
-      a_count<- nrow(a)
-      b<- cl[!cl$outcome %in% a$outcome,]
-      b_count<- nrow(b)
-      
-      #Filter out regions that overlap the focal class
-      non_cl<- df[!df$outcome %in% cl$outcome,]
+      #Counts for fdr < 0.05 & beta < 0
+      a<- nrow(df[df$fdr_age < 0.05 & df$beta_age > 0 & df$anno_class == i,])
+      b<- nrow(df[df$fdr_age > 0.05 & df$beta_age > 0 & df$anno_class != i,])
       
       #Counts for a) negative estimates and b) positive estimates for all other classes
-      c<- non_cl[non_cl$beta_age < 0 & non_cl$beta_sex < 0,]
-      c_count<- nrow(non_cl)
-      d<- non_cl[!non_cl$outcome %in% c$outcome,]
-      d_count<- nrow(d)
+      c<- nrow(df[df$fdr_age > 0.05 & df$anno_class == i,])
+      d<- nrow(df[df$fdr_age > 0.05 & df$anno_class != i,])
       
       #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(classY = c(a_count, b_count),
-                           classN = c(c_count, d_count),
-                           row.names = c("negY", "negN"))
+      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
+                           "fdr>0.05" = c(c, d),
+                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
       
       df_list[[length(df_list)+1]] = c_table
+      
+      print(c_table)
     }
   }
   
   #name table list
-  names(df_list)<- unique(df$class)
+  names(df_list)<- unique(df$anno_class)
   
   #Fisher test for each table and tidy with broom
   ft<- lapply(df_list, fisher.test)
@@ -985,448 +992,49 @@ class_enrichment<- function(model_df, var_opt){
            log_ci.hi = log(conf.high))
 }
 
-#Age and Sex
-age_sex_class<- class_enrichment(autosomes, "both")
-age_sex_chmm$annotation<- factor(age_sex_chmm$annotation, levels = rev(annotations_ordered[1:15]))
+age_hyper<- hyper_enrichment(pqlseq_anno, "age")
 
-age_sex_class %>%
-  ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=annotation)) +
-  geom_col(colour = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = age_sex_class$log_ci.lo, ymax = age_sex_class$log_ci.hi, width = 0.3) +
-  scale_fill_brewer(palette = "Set3") +
+age_hyper$anno_source<- "Repeat Elements"
+age_hyper$anno_source[age_hyper$annotation == "Transcription Start Sites" | age_hyper$annotation == "Active Transcription" |
+                          age_hyper$annotation == "Enhancer Regions" | age_hyper$annotation == "Quiescent States" | 
+                          age_hyper$annotation == "Promoter"]<- "Transcription"
+age_hyper<- age_hyper %>%
+  arrange(anno_source, log_or)
+hyper_levels<- as.character(age_hyper$annotation)
+
+#Rearrange factors to sort by type then log_or
+age_hyper$annotation<- factor(age_hyper$annotation, levels = rev(annos))
+
+#Hypo
+age_hypo<- hypo_enrichment(pqlseq_anno, "age")
+
+age_hypo$anno_source<- "Repeat Elements"
+age_hypo$anno_source[age_hypo$annotation == "Transcription Start Sites" | age_hypo$annotation == "Active Transcription" |
+                        age_hypo$annotation == "Enhancer Regions" | age_hypo$annotation == "Quiescent States" | 
+                        age_hypo$annotation == "Promoter"]<- "Transcription"
+age_hypo<- age_hypo %>%
+  arrange(anno_source, log_or)
+hypo_levels<- as.character(age_hypo$annotation)
+
+#Rearrange factors to sort by type then log_or
+age_hypo$annotation<- factor(age_hypo$annotation, levels = rev(annos))
+age_hypo$type<- "hypo"
+age_hyper$type<- "hyper"
+
+age_enrichment<- rbind(age_hypo, age_hyper)
+
+age_enrichment %>%
+  ggplot(aes(x=annotation, y=log_or, fill=type)) +
+  geom_col(position = position_dodge(0.5), colour="black") +
+  geom_hline(yintercept = 0) +
+  geom_errorbar(ymin = age_enrichment$log_ci.lo, ymax = age_enrichment$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
+  scale_fill_manual(values = c("hotpink", "hotpink3")) +
   theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  #ylim(c(-6, 2)) +
+  #theme(legend.position = "none") +
+  #ylim(c(-1, 7)) +
   ylab("Log Odds") +
   xlab("Annotation") +
   coord_flip()
-
-sex_class<- class_enrichment(pqlseq_full, "sex")
-
-sex_class %>%
-  ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=annotation)) +
-  geom_col(colour = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = sex_class$log_ci.lo, ymax = sex_class$log_ci.hi, width = 0.3) +
-  scale_fill_brewer(palette = "Set3") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-2, 3)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#chmm enrichment----------------------------------------------------------------
-dml_enrichment<- function(model_df, var_opt){
-  
-  df_list<- list()
-  
-  df<- model_df
-  
-  chmm<- unique(df$anno)
-  
-  if (var_opt=="sex") {
-
-    for (i in chmm) {
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$fdr < 0.05 & df$anno == i,])
-      b<- nrow(df[df$fdr < 0.05 & df$anno != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$fdr > 0.05 & df$anno == i,])
-      d<- nrow(df[df$fdr > 0.05 & df$anno != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      
-      df_list[[length(df_list)+1]] = c_table
-    } 
-  } else if (var_opt=="age") {
-    
-    for(i in chmm){
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$fdr_age < 0.05 & df$anno == i,])
-      b<- nrow(df[df$fdr_age < 0.05 & df$anno != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$fdr_age > 0.05 & df$anno == i,])
-      d<- nrow(df[df$fdr_age > 0.05 & df$anno != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      print(c_table)
-      
-      df_list[[length(df_list)+1]] = c_table
-      
-    }
-  } 
-  
-  #name table list
-  names(df_list)<- chmm
-  
-  #Fisher test for each table and tidy with broom
-  ft<- lapply(df_list, fisher.test)
-  ft<- lapply(ft, broom::tidy)
-  
-  ft<- do.call(rbind, ft)
-  ft<- ft %>%
-    mutate(annotation = rownames(ft))
-  
-  #FDR p-val adjustment
-  ft<- ft %>%
-    mutate(padj = p.adjust(p.value)) %>%
-    mutate_at(vars(annotation), as.factor)
-  
-  #Log estimates and CIs
-  ft<- ft %>%
-    mutate(log_or = log(estimate),
-           log_ci.lo = log(conf.low),
-           log_ci.hi = log(conf.high))
-}
-
-age_dml<- dml_enrichment(pqlseq_chmm, "age")
-age_dml$annotation<- factor(age_dml$annotation, levels = rev(annotations_ordered[1:15]))
-
-age_dml %>%
-  ggplot(aes(x=annotation, y=log_or, fill=padj<0.05)) +
-  geom_col() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = age_dml$log_ci.lo, ymax = age_dml$log_ci.hi, width = 0.3) +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-1, 6)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-directional_enrichment<- function(model_df, var_opt){
-  
-  df_list<- list()
-  
-  df<- model_df
-  
-  if (var_opt=="sex") {
-    
-    #filter model for negative sex estimates
-    df<- df %>%
-      filter(fdr < 0.05)
-    
-    #create list of contingency tables for sex
-    for (i in unique(df$anno)) {
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$beta < 0 & df$anno == i,])
-      b<- nrow(df[df$beta < 0 & df$anno != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$beta > 0 & df$anno == i,])
-      d<- nrow(df[df$beta > 0 & df$anno != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      
-      df_list[[length(df_list)+1]] = c_table
-    } 
-  } else if (var_opt=="age") {
-    
-    #filter model for negative sex estimates
-    df<- df %>%
-      filter(fdr_age < 0.05)
-    
-    #create list of contingency tables for sex
-    for(i in unique(df$anno)){
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$beta_age < 0 & df$anno == i,])
-      b<- nrow(df[df$beta_age < 0 & df$anno != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$beta_age > 0 & df$anno == i,])
-      d<- nrow(df[df$beta_age > 0 & df$anno != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      print(c_table)
-      
-      df_list[[length(df_list)+1]] = c_table
-     
-    }
-  } 
-  
-  #name table list
-  names(df_list)<- chmm
-  
-  #Fisher test for each table and tidy with broom
-  ft<- lapply(df_list, fisher.test)
-  ft<- lapply(ft, broom::tidy)
-  
-  ft<- do.call(rbind, ft)
-  ft<- ft %>%
-    mutate(annotation = rownames(ft))
-  
-  #FDR p-val adjustment
-  ft<- ft %>%
-    mutate(padj = p.adjust(p.value)) %>%
-    mutate_at(vars(annotation), as.factor)
-  
-  #Log estimates and CIs
-  ft<- ft %>%
-    mutate(log_or = log(estimate),
-           log_ci.lo = log(conf.low),
-           log_ci.hi = log(conf.high))
-}
-
-#Age
-age_chmm<- directional_enrichment(pqlseq_chmm, "age")
-age_chmm$annotation<- factor(age_chmm$annotation, levels = rev(annotations_ordered[1:15]))
-age_chmm<- age_chmm %>%
-  filter(!estimate == Inf)
-
-age_chmm %>%
-  ggplot(aes(x=annotation, y=log_or, fill=padj<0.05)) +
-  geom_col() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = age_chmm$log_ci.lo, ymax = age_chmm$log_ci.hi, width = 0.3) +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-1, 6)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#Sex
-sex_chmm<- directional_enrichment(sex_pqlseq_chmm, "sex")
-sex_chmm$annotation<- factor(sex_chmm$annotation, levels = rev(annotations_ordered[1:15]))
-
-sex_chmm %>%
-  ggplot(aes(x=annotation, y=log_or, fill=padj<0.05)) +
-  geom_col() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = sex_chmm$log_ci.lo, ymax = sex_chmm$log_ci.hi, width = 0.3) +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-4, 4)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#TE enrichment------------------------------------------------------------------
-te_enrichment<- function(model_df, var_opt){
-  
-  df_list<- list()
-  
-  df<- model_df
-  
-  te<- unique(df$repClass)
-  
-  if (var_opt=="sex") {
-    
-    #filter model for set fdr threshold
-    df<- df %>%
-      filter(fdr < 0.05)
-    
-    #generate list of contigency tables for each rep class
-    for (i in te) {
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$beta < 0 & df$repClass == i,])
-      b<- nrow(df[df$beta < 0 & df$repClass != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$beta > 0 & df$repClass == i,])
-      d<- nrow(df[df$beta > 0 & df$repClass != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      print(c_table)
-      
-      df_list[[length(df_list)+1]] = c_table
-    } 
-  } else if (var_opt=="age") {
-    
-    #filter model for set fdr threshold
-    df<- df %>%
-      filter(fdr_age < 0.05)
-    
-    #generate list of contigency tables for each rep class
-    for(i in te){
-      
-      #Counts for negative estimates
-      a<- nrow(df[df$beta_age < 0 & df$repClass == i,])
-      b<- nrow(df[df$beta_age < 0 & df$repClass != i,])
-      
-      #Counts positive estimates
-      c<- nrow(df[df$beta_age > 0 & df$repClass == i,])
-      d<- nrow(df[df$beta_age > 0 & df$repClass != i,])
-      
-      #Generate contingency table - cols are class, rows are direction
-      c_table<- data.frame(negY = c(a, b),
-                           negN = c(c, d),
-                           row.names = c(paste(i, "Y"), paste(i,"N")))
-      print(c_table)
-      
-      df_list[[length(df_list)+1]] = c_table
-      
-    }
-  } 
-  
-  #name table list
-  names(df_list)<- te
-  
-  #Fisher test for each table and tidy with broom
-  ft<- lapply(df_list, fisher.test)
-  ft<- lapply(ft, broom::tidy)
-  
-  ft<- do.call(rbind, ft)
-  ft<- ft %>%
-    mutate(annotation = rownames(ft))
-  
-  #FDR p-val adjustment
-  ft<- ft %>%
-    mutate(padj = p.adjust(p.value)) %>%
-    mutate_at(vars(annotation), as.factor)
-  
-  #Log estimates and CIs
-  ft<- ft %>%
-    mutate(log_or = log(estimate),
-           log_ci.lo = log(conf.low),
-           log_ci.hi = log(conf.high))
-}
-
-#Age
-age_te<- te_enrichment(pqlseq_re, "age")
-
-age_te %>%
-  filter(!estimate == Inf) %>%
-  ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=padj<0.05)) +
-  geom_col(colour = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = age_te[!age_te$estimate == Inf,]$log_ci.lo, ymax = age_te[!age_te$estimate == Inf,]$log_ci.hi, width = 0.3) +
-  scale_fill_brewer(palette = "Set3") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-4, 4)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip() +
-  ggtitle("Age")
-
-#Sex
-sex_te<- te_enrichment(sex_pqlseq_re, "sex")
-sex_te<- sex_te %>%
-  filter(!conf.high == Inf)
-
-sex_te %>%
-  ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=padj<0.05)) +
-  geom_col(colour = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = sex_te[!sex_te$estimate == Inf,]$log_ci.lo, ymax = sex_te[!sex_te$estimate == Inf,]$log_ci.hi, width = 0.3) +
-  #scale_fill_brewer(palette = "Set3") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-3, 6)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#Sex no X
-no_x<- sex_pqlseq_re %>%
-  filter(!chr == "X")
-no_x_te<- te_enrichment(no_x, "sex")
-no_x_te<- no_x_te %>%
-  filter(!conf.high == Inf)
-
-no_x_te %>%
-  ggplot(aes(x=reorder(annotation, estimate), y=log_or, fill=padj<0.05)) +
-  geom_col(colour = "black") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = no_x_te[!no_x_te$estimate == Inf,]$log_ci.lo, ymax = no_x_te[!no_x_te$estimate == Inf,]$log_ci.hi, width = 0.3) +
-  #scale_fill_brewer(palette = "Set3") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-3, 6)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-
-######################################
-###        ADDITIVE EFFECTS        ###   
-######################################
-#Additive chmm------------------------------------------------------------------
-add_chmm<- pqlseq_chmm %>%
-  filter(!chr == "Y")
-df<- sex_pqlseq_chmm[, 11:16]
-colnames(df)<- paste(colnames(df), "sex" , sep = "_")
-add_chmm<- cbind(add_chmm, df)
-rm(df)
-
-add_chmm<- add_chmm %>%
-  filter(fdr_age < 0.05 & fdr_sex < 0.05 & !chr == "X") 
-
-add_chmm<- add_chmm %>%
-  dplyr::select(c(anno, cpg_loc, beta_age, beta_sex))
-
-add_chmm<- add_chmm %>%
-  pivot_longer(cols = c("beta_age", "beta_sex"), names_to = "type", values_to = "beta")
-
-add_chmm %>%
-  #filter(anno == "7_Enh") %>%
-  ggplot(aes(type, beta, colour = beta < 0, group = cpg_loc)) +
-  geom_point(alpha = 0.1) +
-  geom_path(alpha = 0.1) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  theme_classic(base_size = 24) +
-  scale_x_discrete(labels = c("Age", "Sex"))
-  #facet_wrap(vars(anno), nrow=3)
-
-add_chmm_no_x %>%
-  ggplot(aes(beta, fill = type)) +
-  geom_histogram(colour = "black", bins = 200, alpha = 0.7, position = "identity") +
-  theme_classic(base_size = 24) +
-  ylab("Count") +
-  xlab("Estimate")
-
-#Additive chmm------------------------------------------------------------------
-add_re<- pqlseq_re %>%
-  filter(!chr == "Y")
-df<- sex_pqlseq_re[, 14:19]
-colnames(df)<- paste(colnames(df), "sex" , sep = "_")
-add_re<- cbind(add_re, df)
-rm(df)
-
-add_re<- add_re %>%
-  filter(fdr_age < 0.05 & fdr_sex < 0.05)
-add_re<- add_re %>%
-  mutate(additive = beta_age + beta_sex)
-
-add_re_no_x<- add_re %>%
-  filter(!chr == "X") %>%
-  dplyr::select(c(repClass, beta_age, beta_sex, additive))
-
-add_re_no_x<- add_re_no_x %>%
-  pivot_longer(cols = c("beta_age", "beta_sex", "additive"), names_to = "type", values_to = "beta")
-
-add_re_no_x %>%
-  ggplot(aes(beta, fill = type)) +
-  geom_density(alpha = 0.7) +
-  #geom_histogram(colour = "black", bins = 200, alpha = 0.7, position = "identity") +
-  theme_classic(base_size = 24) +
-  ylab("Count") +
-  xlab("Estimate")
 
 #Save workspace image-----------------------------------------------------------
 save.image("wb_age_analysis.RData")
