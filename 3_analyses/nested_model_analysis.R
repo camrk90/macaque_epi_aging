@@ -83,6 +83,9 @@ nested_pqlseq<- nested_pqlseq %>%
   mutate(std_beta = beta/se_beta) %>%
   relocate(std_beta, .before = beta)
 
+nested_pqlseq$type<- "autosomes"
+nested_pqlseq$type[nested_pqlseq$chr == "X"]<- "X"
+
 #Import genes-------------------------------------------------------------------
 mm_genes<- rtracklayer::import('/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf')
 mm_genes=as.data.frame(mm_genes)
@@ -122,7 +125,8 @@ nested_pqlseq %>%
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   ylab("Count") +
   xlab("Estimate") +
-  theme_classic(base_size = 36)
+  theme_classic(base_size=24) +
+  facet_wrap(vars(type))
 
 #Plot significant hypomethylated estimates
 nested_pqlseq %>%
@@ -174,7 +178,7 @@ df %>%
 
 #Generate and plot paired nested estimates--------------------------------------
 sex<- nested_pqlseq %>%
-  dplyr::select(c(outcome, region_range, chr, std_beta, beta, se_beta, fdr, sex)) %>%
+  dplyr::select(c(outcome, region_range, chr, std_beta, beta, se_beta, fdr, sex, type)) %>%
   pivot_wider(names_from = sex, values_from = c(std_beta, beta, fdr, se_beta), names_sep = "_")
 
 sex<- sex %>%
@@ -201,51 +205,6 @@ cohens_d(hyper_t$beta_f, hyper_t$beta_m)
 mean(hyper_t$beta_m)
 mean(hyper_t$beta_f)
 
-nrow(hyper_t[hyper_t$fdr_m < .05,])
-nrow(hyper_t[hyper_t$fdr_f < .05,])
-
-#Plot t-test distributions
-df<- hyper_t %>%
-  pivot_longer(cols = c(beta_f, beta_m), names_to = "sex", values_to = "beta")
-
-df %>%
-  ggplot(aes(beta, fill=sex)) +
-  geom_density(alpha = 0.5, colour="black", position = "identity") + 
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  ylab("Count") +
-  xlab("Estimate (fdr_f < 0.05 | fdr_m < 0.05)") +
-  theme_classic(base_size = 30)
-
-df %>%
-  ggplot(aes(sex, beta, fill=sex)) +
-  geom_boxplot() +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  ylab("Count") +
-  xlab("Estimate (fdr_f < 0.05 | fdr_m < 0.05)") +
-  theme_classic(base_size = 30)
-
-df2<- hypo_t %>%
-  pivot_longer(cols = c(std_beta_f, std_beta_m), names_to = "sex", values_to = "beta")
-
-df2 %>%
-  ggplot(aes(beta, fill=sex)) +
-  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") + 
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  ylab("Count") +
-  xlab("Estimate (fdr_f < 0.05 | fdr_m < 0.05)") +
-  theme_classic(base_size = 30)
-
-sex_hyper %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(!chr == "X") %>%
-  ggplot(aes(abs_diff, fill = abs_diff > 0)) +
-  geom_histogram(bins = 100, colour = "black", position = 'identity', alpha = 0.8) +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  xlab("|Estimate (F)| - |Estimate (M)|") +
-  ylab("Count") +
-  theme_classic(base_size = 30) +
-  theme(legend.position = "none")
-
 #Distribution of difference in abs estimates for hypomethylated regions with x-chrom
 sex_hypo %>%
   filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
@@ -265,7 +224,7 @@ sex_hypo %>%
   ggplot(aes(abs_diff, fill = after_stat(x))) +
   geom_histogram(bins = 100, colour = "black", position = 'identity') +
   geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
-  scale_fill_gradient2(low = "orangered2", mid = "white", high = "royalblue2", midpoint = 0, name = "Beta Difference") +
+  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
   xlab("|Estimate (F)| - |Estimate (M)|") +
   ylab("Hypomethylated Regions No X") +
   theme_classic(base_size = 30) +
@@ -299,7 +258,7 @@ sex_hyper %>%
 
 #Scatterplot of male vs female estimates
 sex %>%
-  #filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
+  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
   ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
   geom_point() +
   geom_abline() +
@@ -311,8 +270,26 @@ sex %>%
   #xlim(-0.5, 0.5) +
   xlab("Estimate (Male)") +
   ylab("Estimate (Female)") +
-  theme_classic(base_size = 36) +
-  theme(legend.key.height= unit(2, 'cm'))
+  theme_classic(base_size=24) +
+  theme(legend.key.height= unit(2, 'cm')) +
+  facet_wrap(vars(type))
+
+sex %>%
+  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
+  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
+  geom_point() +
+  geom_abline() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_color_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
+  geom_smooth(method = "lm") +
+  #ylim(-0.5, 0.5) +
+  #xlim(-0.5, 0.5) +
+  xlab("Estimate (Male)") +
+  ylab("Estimate (Female)") +
+  theme_classic(base_size=24) +
+  theme(legend.key.height= unit(2, 'cm')) +
+  facet_wrap(vars(type))
 
 df3<- sex %>%
   filter(fdr_f < 0.05 | fdr_m < 0.05)
@@ -331,40 +308,17 @@ annotation_labels<- c("Active TSS", "Flanking Active TSS", "Transcr. at 5' & 3'"
                       "ZNF Genes & Repeats", "Heterochromatin", "Bivalent/Poised TSS", "Flanking Bivalent TSS/Enh", "Bivalent Enhancer", "Repressed Polycomb",
                       "Weak Repressed Polycomb", "Quiescent/Low")
 #Promoters----------------------------------------------------------------------
-hypo_prom<- left_join(promoters, sex_hypo, by = c("region_range", "chr"))
-hypo_prom<- hypo_prom %>%
+m_prom<- left_join(promoters, m_nested, by = c("region_range", "chr"))
+m_prom<- m_prom %>%
   drop_na() %>%
   distinct(anno, .keep_all = T)
-hypo_prom$anno_class<- "Promoter"
-hyper_prom<- left_join(promoters, sex_hyper, by = c("region_range", "chr"))
-hyper_prom<- hyper_prom %>%
+m_prom$anno_class<- "Promoter"
+
+f_prom<- left_join(promoters, f_nested, by = c("region_range", "chr"))
+f_prom<- f_prom %>%
   drop_na() %>%
   distinct(anno, .keep_all = T)
-hyper_prom$anno_class<- "Promoter"
-
-#Generate hallmark gene set
-hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "H")
-hallmark_list = split(x = hallmark.msigdb$ensembl_gene, f = hallmark.msigdb$gs_name)
-
-#Generate gene ontology set
-go_set = msigdbr(species = "Macaca mulatta", category = "C5", subcategory = "GO:BP")
-go_set = split(x = go_set$ensembl_gene, f = go_set$gs_name)
-
-#Generate rank-ordered vector by pqlseq coefficient
-proms<- hypo_prom %>% 
-  dplyr::select(anno, std_beta_f) %>% 
-  arrange(desc(std_beta_f))
-
-proms2<- proms$std_beta_f
-names(proms2) = proms$anno
-
-#Enrichment for Hallmark set
-prom_gsea2<- fgsea(pathways = hallmark_list, 
-                  stats = proms2,
-                  minSize = 15,
-                  maxSize = 500,
-                  eps = 0.0,
-                  scoreType = "neg")
+f_prom$anno_class<- "Promoter"
 
 #Annotations--------------------------------------------------------------------
 #Define join function
@@ -441,48 +395,87 @@ anno_join<- function(output_df, annotation_df, annotation_type){
   }
 }
 
-hyper_chmm<- anno_join(sex_hyper, chmm_intersect, "chmm")
-hyper_re<- anno_join(sex_hyper, re_anno, "re")
-hyper_full<- rbind(hyper_chmm, hyper_re, hyper_prom)
+m_chmm<- anno_join(m_nested, chmm_intersect, "chmm")
+m_re<- anno_join(m_nested, re_anno, "re")
+m_full<- rbind(m_chmm, m_re, m_prom)
 
-hypo_chmm<- anno_join(sex_hypo, chmm_intersect, "chmm")
-hypo_re<- anno_join(sex_hypo, re_anno, "re")
-hypo_full<- rbind(hypo_chmm, hypo_re, hypo_prom)
+annos<- c("Promoter", "Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States", "Simple Repeats",
+          "Transposable Elements Class I", "Transposable Elements Class II", "Structural RNAs")
+
+m_full$anno_source<- "Repeat Elements"
+m_full$anno_source[m_full$anno_class == "Transcription Start Sites" | m_full$anno_class == "Active Transcription" |
+                          m_full$anno_class == "Enhancer Regions" | m_full$anno_class == "Quiescent States" | 
+                          m_full$anno_class == "Promoter"]<- "Transcription"
+
+m_full<- m_full %>%
+  arrange(anno_source, anno_class)
+
+#Rearrange factors to sort by type then log_or
+m_full$anno_class<- factor(m_full$anno_class, levels = rev(annos))
+
+m_full$signif<- "Non-Significant"
+m_full$signif[m_full$fdr < 0.05 & m_full$beta < 0]<- "Age-Hypomethylated"
+m_full$signif[m_full$fdr < 0.05 & m_full$beta > 0]<- "Age-Hypermethylated"
+
+m_full$signif<- factor(m_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+f_chmm<- anno_join(f_nested, chmm_intersect, "chmm")
+f_re<- anno_join(f_nested, re_anno, "re")
+f_full<- rbind(f_chmm, f_re, f_prom)
+
+f_full$anno_source<- "Repeat Elements"
+f_full$anno_source[f_full$anno_class == "Transcription Start Sites" | f_full$anno_class == "Active Transcription" |
+                     f_full$anno_class == "Enhancer Regions" | f_full$anno_class == "Quiescent States" | 
+                     f_full$anno_class == "Promoter"]<- "Transcription"
+
+f_full<- f_full %>%
+  arrange(anno_source, anno_class)
+
+#Rearrange factors to sort by type then log_or
+f_full$anno_class<- factor(f_full$anno_class, levels = rev(annos))
+
+f_full$signif<- "Non-Significant"
+f_full$signif[f_full$fdr < 0.05 & f_full$beta < 0]<- "Age-Hypomethylated"
+f_full$signif[f_full$fdr < 0.05 & f_full$beta > 0]<- "Age-Hypermethylated"
+
+f_full$signif<- factor(f_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
 
 #Plot basics--------------------------------------------------------------------
-hyper_chmm %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
-  geom_point() +
-  #geom_abline() +
-  geom_smooth(method = "glm") +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  scale_color_gradient2(low = "orangered2", high = "royalblue2", midpoint = 0, name = "Beta Difference") +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Estimate M") +
-  ylab("Estimate F") +
-  facet_wrap(vars(anno), nrow=3)
+m_proportions<- m_full %>% 
+  group_by(anno_class, signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
 
-hypo_full %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_hline(yintercept = 0, linetype = 'dashed') +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  scale_color_gradient2(low = "orangered2", high = "royalblue2", midpoint = 0, name = "Beta Difference") +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-  xlab("Estimate M") +
-  ylab("Estimate F")
+m_proportions %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=d2$count, hjust=-2) +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("magenta1", "gray90", "darkmagenta")) +
+  ylab("Annotation") +
+  xlab("Percentage")
+
+f_proportions<- f_full %>% 
+  group_by(anno_class, signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+f_proportions %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=d2$count, hjust=-2) +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("darkolivegreen1", "gray90", "darkolivegreen")) +
+  ylab("Annotation") +
+  xlab("Percentage")
 
 ######################################
 ###           ENRICHMENT           ###   
 ######################################
-#CHMM Enrichment----------------------------------------------------------------
-enrichment<- function(model_df, var_opt){
+#Hypo Enrichment---------------------------------------------------------------------
+hypo_enrichment<- function(model_df, var_opt){
   
   df_list<- list()
   
@@ -490,9 +483,231 @@ enrichment<- function(model_df, var_opt){
   
   if (var_opt=="class") {
     
-    #filter model for negative sex estimates
-    df<- df %>%
-      filter(fdr_f < 0.05 | fdr_m < 0.05)
+    #create list of contingency tables for sex
+    for(i in unique(df$anno_class)){
+      
+      #Counts for fdr < 0.05 & beta < 0
+      a<- nrow(df[df$fdr < 0.05 & df$beta < 0 & df$anno_class == i,])
+      b<- nrow(df[df$fdr < 0.05 & df$beta < 0 & df$anno_class != i,])
+      
+      #Counts for fdr > 0.05
+      c<- nrow(df[!(df$fdr < 0.05 & df$beta < 0) & df$anno_class == i,])
+      d<- nrow(df[!(df$fdr < 0.05 & df$beta < 0) & df$anno_class != i,])
+      
+      #Generate contingency table
+      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
+                           "fdr>0.05" = c(c, d),
+                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
+      
+      df_list[[length(df_list)+1]] = c_table
+      
+      print(c_table)
+      
+    }
+  } 
+  
+  #name table list
+  names(df_list)<- unique(df$anno_class)
+  
+  #Fisher test for each table and tidy with broom
+  ft<- lapply(df_list, fisher.test)
+  ft<- lapply(ft, broom::tidy)
+  
+  ft<- do.call(rbind, ft)
+  ft<- ft %>%
+    mutate(annotation = rownames(ft))
+  
+  #FDR p-val adjustment
+  ft<- ft %>%
+    mutate(padj = p.adjust(p.value)) %>%
+    mutate_at(vars(annotation), as.factor)
+  
+  #Log estimates and CIs
+  ft<- ft %>%
+    mutate(log_or = log(estimate),
+           log_ci.lo = log(conf.low),
+           log_ci.hi = log(conf.high))
+}
+
+#MALES
+m_hypo<- hypo_enrichment(m_full, "class")
+
+m_hypo$anno_source<- "Repeat Elements"
+m_hypo$anno_source[m_hypo$annotation == "Transcription Start Sites" | m_hypo$annotation == "Active Transcription" |
+                         m_hypo$annotation == "Enhancer Regions" | m_hypo$annotation == "Quiescent States" | 
+                          m_hypo$annotation == "Promoter"]<- "Transcription"
+m_hypo<- m_hypo %>%
+  arrange(anno_source)
+hypo_levels<- as.character(m_hypo$annotation)
+
+#Rearrange factors to sort by type then log_or
+m_hypo$annotation<- factor(m_hypo$annotation, levels = rev(annos))
+m_hypo$type<- "M"
+
+#FEMALES
+f_hypo<- hypo_enrichment(f_full, "class")
+
+f_hypo$anno_source<- "Repeat Elements"
+f_hypo$anno_source[f_hypo$annotation == "Transcription Start Sites" | f_hypo$annotation == "Active Transcription" |
+                      f_hypo$annotation == "Enhancer Regions" | f_hypo$annotation == "Quiescent States" | 
+                      f_hypo$annotation == "Promoter"]<- "Transcription"
+f_hypo<- f_hypo %>%
+  arrange(anno_source)
+hypo_levels<- as.character(f_hypo$annotation)
+
+#Rearrange factors to sort by type then log_or
+f_hypo$annotation<- factor(f_hypo$annotation, levels = rev(annos))
+f_hypo$type<- "F"
+
+full_hypo<- rbind(m_hypo, f_hypo)
+
+full_hypo %>%
+  ggplot(aes(x=annotation, y=estimate, fill = type, alpha = padj < 0.05)) +
+  geom_col(position = position_dodge(0.5)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_errorbar(ymin = full_hypo$conf.low, ymax = full_hypo$conf.high, width = 0.3, position = position_dodge(0.7)) +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  theme_classic(base_size = 32) +
+  theme(legend.position = "none") +
+  #ylim(c(-1, 7)) +
+  ylab("Odds Ratio") +
+  xlab("Annotation") +
+  coord_flip()
+
+#Hyper Enrichment---------------------------------------------------------------------
+hyper_enrichment<- function(model_df, var_opt){
+  
+  df_list<- list()
+  
+  df<- model_df
+  
+  if (var_opt=="class") {
+    
+    #create list of contingency tables for sex
+    for(i in unique(df$anno_class)){
+      
+      #Counts for fdr < 0.05 & beta < 0
+      a<- nrow(df[df$fdr < 0.05 & df$beta > 0 & df$anno_class == i,])
+      b<- nrow(df[df$fdr < 0.05 & df$beta > 0 & df$anno_class != i,])
+      
+      #Counts for fdr > 0.05
+      c<- nrow(df[!(df$fdr < 0.05 & df$beta > 0) & df$anno_class == i,])
+      d<- nrow(df[!(df$fdr < 0.05 & df$beta > 0) & df$anno_class != i,])
+      
+      #Generate contingency table
+      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
+                           "fdr>0.05" = c(c, d),
+                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
+      
+      df_list[[length(df_list)+1]] = c_table
+      
+      print(c_table)
+      
+    }
+  } 
+  
+  #name table list
+  names(df_list)<- unique(df$anno_class)
+  
+  #Fisher test for each table and tidy with broom
+  ft<- lapply(df_list, fisher.test)
+  ft<- lapply(ft, broom::tidy)
+  
+  ft<- do.call(rbind, ft)
+  ft<- ft %>%
+    mutate(annotation = rownames(ft))
+  
+  #FDR p-val adjustment
+  ft<- ft %>%
+    mutate(padj = p.adjust(p.value)) %>%
+    mutate_at(vars(annotation), as.factor)
+  
+  #Log estimates and CIs
+  ft<- ft %>%
+    mutate(log_or = log(estimate),
+           log_ci.lo = log(conf.low),
+           log_ci.hi = log(conf.high))
+}
+
+#MALES
+m_hyper<- hyper_enrichment(m_full, "class")
+
+m_hyper$anno_source<- "Repeat Elements"
+m_hyper$anno_source[m_hyper$annotation == "Transcription Start Sites" | m_hyper$annotation == "Active Transcription" |
+                      m_hyper$annotation == "Enhancer Regions" | m_hyper$annotation == "Quiescent States" | 
+                      m_hyper$annotation == "Promoter"]<- "Transcription"
+m_hyper<- m_hyper %>%
+  arrange(anno_source)
+hyper_levels<- as.character(m_hyper$annotation)
+
+#Rearrange factors to sort by type then log_or
+m_hyper$annotation<- factor(m_hyper$annotation, levels = rev(annos))
+m_hyper$type<- "M"
+
+#FEMALES
+f_hyper<- hyper_enrichment(f_full, "class")
+
+f_hyper$anno_source<- "Repeat Elements"
+f_hyper$anno_source[f_hyper$annotation == "Transcription Start Sites" | f_hyper$annotation == "Active Transcription" |
+                      f_hyper$annotation == "Enhancer Regions" | f_hyper$annotation == "Quiescent States" | 
+                      f_hyper$annotation == "Promoter"]<- "Transcription"
+f_hyper<- f_hyper %>%
+  arrange(anno_source)
+hyper_levels<- as.character(f_hyper$annotation)
+
+#Rearrange factors to sort by type then log_or
+f_hyper$annotation<- factor(f_hyper$annotation, levels = rev(annos))
+f_hyper$type<- "F"
+
+full_hyper<- rbind(m_hyper, f_hyper)
+
+full_hyper %>%
+  ggplot(aes(x=annotation, y=estimate, fill = type, alpha = padj < 0.05)) +
+  geom_col(position = position_dodge(0.5)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_errorbar(ymin = full_hyper$conf.low, ymax = full_hyper$conf.high, width = 0.3, position = position_dodge(0.7)) +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  theme_classic(base_size = 32) +
+  theme(legend.position = "none") +
+  #ylim(c(-1, 7)) +
+  ylab("Odds Ratio") +
+  xlab("Annotation") +
+  coord_flip()
+
+#GSEA---------------------------------------------------------------------------
+#Generate hallmark gene set
+hallmark.msigdb = msigdbr(species = "Macaca mulatta", category = "H")
+hallmark_list = split(x = hallmark.msigdb$ensembl_gene, f = hallmark.msigdb$gs_name)
+
+#Generate gene ontology set
+go_set = msigdbr(species = "Macaca mulatta", category = "C5", subcategory = "GO:BP")
+go_set = split(x = go_set$ensembl_gene, f = go_set$gs_name)
+
+#Generate rank-ordered vector by pqlseq coefficient
+proms<- hypo_prom %>% 
+  dplyr::select(anno, std_beta_f) %>% 
+  arrange(desc(std_beta_f))
+
+proms2<- proms$std_beta_f
+names(proms2) = proms$anno
+
+#Enrichment for Hallmark set
+prom_gsea2<- fgsea(pathways = hallmark_list, 
+                   stats = proms2,
+                   minSize = 15,
+                   maxSize = 500,
+                   eps = 0.0,
+                   scoreType = "neg")
+
+
+#This version has the abs_diff code so keeping here for now 
+hyper_enrichment<- function(model_df, var_opt){
+  
+  df_list<- list()
+  
+  df<- model_df
+  
+  if (var_opt=="class") {
     
     annotation<- unique(df$anno_class)
     
@@ -568,154 +783,5 @@ enrichment<- function(model_df, var_opt){
            log_ci.lo = log(conf.low),
            log_ci.hi = log(conf.high))
 }
-
-hyper_class<- enrichment(hyper_full, "class")
-
-annos<- c("Promoter", "Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States", "Simple Repeats",
-          "Transposable Elements Class I", "Transposable Elements Class II", "Structural RNAs")
-
-hyper_class$anno_source<- "Repeat Elements"
-hyper_class$anno_source[hyper_class$annotation == "Transcription Start Sites" | hyper_class$annotation == "Active Transcription" |
-                         hyper_class$annotation == "Enhancer Regions" | hyper_class$annotation == "Quiescent States" | 
-                          hyper_class$annotation == "Promoter"]<- "Transcription"
-hyper_class<- hyper_class %>%
-  arrange(anno_source, log_or)
-hyper_levels<- as.character(hyper_class$annotation)
-
-#Rearrange factors to sort by type then log_or
-hyper_class$annotation<- factor(hyper_class$annotation, levels = rev(annos))
-
-hyper_class %>%
-  ggplot(aes(x=annotation, y=log_or, fill = log_or > 0, alpha = padj < 0.05)) +
-  geom_col(position = position_dodge(0.7)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = hyper_class$log_ci.lo, ymax = hyper_class$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-1, 7)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-#Hypomethylated region enrichment
-hypo_class<- enrichment(hypo_full, "class")
-
-hypo_class$anno_source<- "Repeat Elements"
-hypo_class$anno_source[hypo_class$annotation == "Transcription Start Sites" | hypo_class$annotation == "Active Transcription" |
-                       hypo_class$annotation == "Enhancer Regions" | hypo_class$annotation == "Quiescent States" | 
-                         hypo_class$annotation == "Promoter"]<- "Transcription"
-hypo_class<- hypo_class %>%
-  arrange(anno_source)
-hypo_levels<- as.character(hypo_class$annotation)
-
-#Rearrange factors to sort by type then log_or
-hypo_class$annotation<- factor(hypo_class$annotation, levels = rev(annos))
-
-hypo_class %>%
-  ggplot(aes(x=annotation, y=log_or, fill = log_or > 0)) +
-  geom_col(position = position_dodge(0.7)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = hypo_class$log_ci.lo, ymax = hypo_class$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-2, 2)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip() +
-  ggtitle("Hypomethylated CpGs")
-
-#Hypo Annotation
-test<- hypo_full %>%
-  filter(!anno_class == "Promoter")
-
-hypo_enrich<- enrichment(test, "annotation")
-hypo_re_enrich<- hypo_re_enrich[16:nrow(hypo_re_enrich),]
-
-hypo_re_enrich$anno_class<- "Simple Repeats"
-hypo_re_enrich$anno_class[hypo_re_enrich$annotation %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
-hypo_re_enrich$anno_class[hypo_re_enrich$annotation %in% "DNA"]<- "Transposable Elements Class II"
-hypo_re_enrich$anno_class[hypo_re_enrich$annotation %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
-
-hypo_re_enrich<- hypo_re_enrich %>%
-  mutate(anno_class = as.factor(anno_class))
-hypo_re_enrich$anno_class<- factor(hypo_re_enrich$anno_class, levels = c("Simple Repeats", "Transposable Elements Class I", 
-                                                                         "Transposable Elements Class II", "Structural RNAs"))
-
-hypo_re_enrich<- hypo_re_enrich %>%
-  arrange(anno_class, log_or)
-hypo_re_enrich$annotation<- factor(hypo_re_enrich$annotation, levels = rev(hypo_re_enrich$annotation))
-
-hypo_re_enrich %>%
-  ggplot(aes(x=annotation, y=log_or, fill = log_or > 0, alpha = padj < 0.05)) +
-  geom_col(position = position_dodge(0.7)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = hypo_re_enrich$log_ci.lo, ymax = hypo_re_enrich$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-3, 3)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip() +
-  ggtitle("Hypomethylated CpGs")
-
-#Hyper re enrich
-test2<- hyper_full %>%
-  filter(!anno_class == "Promoter")
-
-hyper_enrich<- enrichment(test2, "annotation")
-hyper_chmm_enrich<- hyper_enrich[1:14,]
-hyper_chmm_enrich$annotation<- factor(hyper_chmm_enrich$annotation, levels = rev(annotation_labels))
-hyper_chmm_enrich<- hyper_chmm_enrich %>%
-  filter(!estimate == Inf) %>%
-  arrange(annotation)
-
-hyper_chmm_enrich %>%
-  ggplot(aes(x=annotation, y=log_or, fill = log_or > 0, alpha = padj < 0.05)) +
-  geom_col(position = position_dodge(0.7)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = hyper_chmm_enrich$log_ci.lo, ymax = hyper_chmm_enrich$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-3, 3)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
-hyper_re_enrich<- hyper_enrich[15:nrow(hyper_enrich),]
-
-hyper_re_enrich$anno_class<- "Simple Repeats"
-hyper_re_enrich$anno_class[hyper_re_enrich$annotation %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
-hyper_re_enrich$anno_class[hyper_re_enrich$annotation %in% "DNA"]<- "Transposable Elements Class II"
-hyper_re_enrich$anno_class[hyper_re_enrich$annotation %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
-
-hyper_re_enrich<- hyper_re_enrich %>%
-  mutate(anno_class = as.factor(anno_class))
-hyper_re_enrich$anno_class<- factor(hyper_re_enrich$anno_class, levels = c("Simple Repeats", "Transposable Elements Class I", 
-                                                                         "Transposable Elements Class II", "Structural RNAs"))
-
-hyper_re_enrich<- hyper_re_enrich %>%
-  arrange(anno_class, log_or)
-hyper_re_enrich$annotation<- factor(hyper_re_enrich$annotation, levels = rev(hyper_re_enrich$annotation))
-
-hyper_re_enrich<- hyper_re_enrich %>%
-  filter(!estimate == Inf)
-
-hyper_re_enrich %>%
-  ggplot(aes(x=annotation, y=log_or, fill = log_or > 0, alpha = padj < 0.05)) +
-  geom_col(position = position_dodge(0.7)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_errorbar(ymin = hyper_re_enrich$log_ci.lo, ymax = hyper_re_enrich$log_ci.hi, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  theme(legend.position = "none") +
-  ylim(c(-3, 3)) +
-  ylab("Log Odds") +
-  xlab("Annotation") +
-  coord_flip()
-
 #Save workspace image-----------------------------------------------------------
 save.image("nested_analysis.RData")

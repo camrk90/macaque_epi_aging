@@ -8,7 +8,7 @@ library(PQLseq2)
 setwd("/scratch/ckelsey4/Cayo_meth/glmer_model_compare")
 
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- read.csv("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt", sep="\t")
 
 long_data<- long_data %>%
   arrange(monkey_id) %>%
