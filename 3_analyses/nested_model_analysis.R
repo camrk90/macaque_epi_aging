@@ -119,14 +119,15 @@ nested_pqlseq %>%
 #Plot significant estimates
 nested_pqlseq %>%
   filter(fdr < 0.05) %>%
+  filter(chr == "X") %>%
   ggplot(aes(beta, fill=sex)) +
   geom_histogram(alpha = 0.7, colour="black", bins = 100, position = "identity") +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   ylab("Count") +
   xlab("Estimate") +
-  theme_classic(base_size=24) +
-  facet_wrap(vars(type))
+  theme_classic(base_size=24)
+  #facet_wrap(vars(type), nrow = 2)
 
 #Plot significant hypomethylated estimates
 nested_pqlseq %>%
