@@ -1,6 +1,7 @@
 library(tidyverse)
 library(GENESIS)
 setwd("/scratch/ckelsey4/Cayo_meth")
+setwd("/Users/cameronkelsey/Documents/smack_lab/cayo_data/cayo_meth copy")
 
 #FILTER METADTA FOR REPEATED SAMPLES--------------------------------------------
 #import metadata
@@ -9,34 +10,8 @@ blood_metadata<- read.table("metadata_temp_clean_241106.txt", header = T, fill =
 #Filter for whole blood and add pid col
 blood_metadata<- blood_metadata %>%
   filter(grantparent_tissueType == "whole_blood") %>%
-  mutate(pid = lid_pid) %>%
+  mutate(pid = paste0("PID_", str_split_i(lid_pid, "_", 4))) %>%
   relocate(pid, .after = lid_pid)
-
-#separate pid col by '_' to isolate pid number
-blood_metadata<- blood_metadata %>%
-  separate_wider_delim(pid, delim = "_",
-                       names = c("a", "b", "c", "pid")) %>%
-  dplyr::select(-c(a, b, c))
-
-#filter for samples with n>2 per id
-blood_metadata<- blood_metadata %>%
-  group_by(monkey_id) %>%
-  mutate(n = n()) %>%
-  filter(n >= 2)
-
-#Add mean age col
-blood_metadata<- blood_metadata %>%
-  group_by(monkey_id) %>%
-  mutate(mean.age = mean(age_at_sampling))
-
-#Add mean-centred age col
-blood_metadata<- blood_metadata %>%
-  mutate(within.age = age_at_sampling - mean.age)
-
-#Arrange by id
-blood_metadata<- blood_metadata %>%
-  ungroup() %>%
-  arrange(monkey_id)
 
 #Add university prepped
 blood_metadata<- blood_metadata %>%
@@ -45,13 +20,34 @@ blood_metadata<- blood_metadata %>%
 blood_metadata$university<- "uw"
 blood_metadata$university[blood_metadata$prep_year > 2019]<- "asu"
 
+#filter for samples with n>2 per id
+long_metadata<- long_metadata %>%
+  group_by(monkey_id) %>%
+  mutate(n = n()) %>%
+  filter(n >= 2)
+
+#Add mean age col
+long_metadata<- long_metadata %>%
+  group_by(monkey_id) %>%
+  mutate(mean.age = mean(age_at_sampling))
+
+#Add mean-centred age col
+long_metadata<- long_metadata %>%
+  mutate(within.age = age_at_sampling - mean.age)
+
+#Arrange by id
+long_metadata<- long_metadata %>%
+  ungroup() %>%
+  arrange(monkey_id)
+
 #Select important cols
-blood_metadata_short<- blood_metadata %>%
+long_metadata<- long_metadata %>%
   dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n, 
                 processing_timestamp, prep_date, university)
 
 #Filter out ids that have two entries at the same age
-blood_metadata_short<- blood_metadata_short %>%
+#MAYBE NEED TO ADJUST THIS TO FILTER OUT THE LID WITH THE WORST COVERAGE
+long_metadata<- long_metadata %>%
   group_by(monkey_id) %>%
   distinct(age_at_sampling, .keep_all = T) %>%
   mutate(n = n())
