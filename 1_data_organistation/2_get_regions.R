@@ -13,7 +13,7 @@ setwd("/scratch/ckelsey4/Cayo_meth")
 
 #### IMPORT DATA ###############################################################
 #Import metadata
-blood_metadata<- readRDS("long_data_adjusted")
+blood_metadata<- read.table("blood_metadata_full.txt")
 
 #Import cayo bsseq object and edit lid_pid colnames
 #Autosomes/ChrX
@@ -33,7 +33,7 @@ unique_chrs <- unique(seqlevels(macaque_txdb))
 
 # Select the first 22(1-20 + X/Y) unique chromosome names as a redundancy against missing chromosome levels in the txdb object
 # This will not match to the bsseq object if the chromosomes levels in txdb don't match for whatever reason
-selected_chrs <- unique_chrs[1:22]
+selected_chrs <- unique_chrs[1:21]
 macaque_txdb <- keepSeqlevels(macaque_txdb, selected_chrs)
 
 #Generate genes and promoters
@@ -53,7 +53,7 @@ all.equal(cayo_blood@colData@rownames, blood_metadata$lid_pid)
 #Split bsseq by chromosome
 cayo_blood_list<- parallel::mclapply(selected_chrs,function(x){
   chrSelectBSseq(cayo_blood, seqnames = x, order = TRUE)
-},mc.cores =10)
+}, mc.cores=21)
 
 names(cayo_blood_list)<- 1:21
 
@@ -78,7 +78,6 @@ cayo_filtered_list<- append(cayo_filtered_list, Y_filtered)
 names(cayo_filtered_list)<- c(1:20, "X", "Y")
 
 #### GENERATE REGIONS ##########################################################
-cayo_filtered_list<- readRDS("cayo_filtered_list")
 #Generate regions 
 regions<- parallel::mclapply(cayo_filtered_list,function(x){
   bsseq:::regionFinder3(x = as.integer(rep(1,length(x))), 

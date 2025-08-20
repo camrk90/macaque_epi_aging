@@ -48,65 +48,6 @@ regions_m<- lapply(names(regions_m), function(x){
 
 
 ######################################
-####        AVERAGE %METH          ###
-######################################
-#Generate %methylation matrix (m/cov)-------------------------------------------
-ratio<- mapply('/', regions_m, regions_cov, SIMPLIFY = F)
-ratio<- do.call(rbind, ratio)
-ratio<- ratio[colnames(ratio) %in% long_data$lid_pid]
-ratio[is.na(ratio)]<- 0
-rownames(ratio)<- str_split_i(rownames(ratio), "\\.", 3)
-ratio$chrom<- rownames(ratio)
-ratio$chrom<- str_split_i(ratio$chrom, "\\_", 1)
-
-#Generate average %methylation across all regions for each individual
-av_meth<- colMeans(ratio)
-av_meth<- as.vector(av_meth)
-av_meth<- cbind(av_meth, colnames(ratio))
-av_meth<- av_meth %>%
-  as.data.frame() %>%
-  arrange(V2)
-av_meth<- cbind(av_meth, long_data$age_at_sampling, long_data$sex, long_data$monkey_id)
-colnames(av_meth)<- c('perc_meth', 'lid_pid', 'age', 'sex', "monkey_id")
-av_meth$perc_meth<- as.numeric(av_meth$perc_meth)
-
-av_meth<- av_meth %>% 
-  group_by(monkey_id) %>%
-  mutate(diff = max(perc_meth) - min(perc_meth))
-
-av_meth %>%
-  ggplot(aes(age, perc_meth)) +
-  geom_point(aes(colour=sex)) +
-  geom_path(aes(group = monkey_id), alpha = 0.5) +
-  geom_smooth(aes(colour=sex),method = "glm") +
-  geom_smooth(method = "glm", colour='black', linetype = "dashed", se = F) +
-  scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  scale_x_continuous(breaks = seq(0, 30, by=5)) +
-  ylab("Average % Methylation") +
-  xlab("Age") +
-  theme_classic(base_size = 24)
-
-lm_sum<-av_meth %>%
-  distinct(monkey_id, .keep_all = T) %>%
-  t.test(diff ~ sex, data = .)
-
-av_meth_diff %>%
-  distinct(monkey_id, .keep_all = T) %>%
-  ggplot(aes(sex, diff)) +
-  geom_dotplot(aes(fill = sex), binaxis = "y", stackdir = "center", dotsize = 0.7) +
-  geom_boxplot(width=0.05) +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  ylab("%Methylation Change") +
-  xlab("Sex") +
-  theme_classic(base_size = 24)
-
-#Import regions info
-regions<- readRDS("regions_full")
-rownames(regions)<- str_split_i(rownames(regions), "\\.", 2)
-regions<- regions_df[rownames(regions) %in% rownames(ratio),]
-
-
-######################################
 ###  Plot metadata distributions   ###
 ######################################
 #No. of individuals by sex------------------------------------------------------
@@ -195,7 +136,7 @@ summary(pca_wb)$importance[2, ]
 pcs<- cbind(pcs[1:10], dplyr::select(long_data, c("age_at_sampling", "within.age", "mean.age", "sex", "pid")))
 
 pcs %>% 
-  ggplot(aes(PC1, PC2, colour=pid)) + 
+  ggplot(aes(PC1, within.age)) + 
   geom_point() +
   theme_classic(base_size=24)
 
@@ -211,10 +152,10 @@ pcs %>%
   geom_smooth(method = "lm") +
   theme_classic(base_size = 24)
 
-pc.matrix<- model.matrix(~ predicted_pcs + PC1 + PC2 + PC3 + within.age + sex + mean.age + pid, data = pcs)
-pc.matrix[, 3:ncol(pc.matrix)] %>% 
+pc.matrix<- model.matrix(~ PC1 + PC2 + PC3 + age_at_sampling + within.age + sex + mean.age, data = pcs)
+pc.matrix %>% 
   cor(use="pairwise.complete.obs") %>%
-  ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=2)
+  ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=5, sig.level = 0.05, insig = "blank")
 
 ######################################
 ###      Import GLMER Models       ###
@@ -402,14 +343,80 @@ pqlseq_model<- cbind(age_w_pqlseq, age_m_pqlseq[,7:14], chron_age_pqlseq[,7:14])
 
 #Sort chromosome factors
 sorted_labels<- str_sort(unique(pqlseq_model$chr), numeric=T)
+
 pqlseq_model<- pqlseq_model %>%
   mutate(chr = factor(chr, levels = sorted_labels)) %>%
   arrange(chr)
+
+pqlseq_model<- pqlseq_model %>%
+  mutate(age_ratio = abs(beta_age)/abs(beta_chron_age),
+         age_diff = abs(beta_age) - abs(beta_chron_age))
+
 sex_pqlseq<- sex_pqlseq %>%
   mutate(chr = factor(chr, levels = sorted_labels[1:21])) %>%
   arrange(chr)
   
 rm(age_w_pqlseq);rm(age_m_pqlseq);rm(chron_age_pqlseq)
+
+#Compare age-within and chron-age-----------------------------------------------
+#Scatterplot of chron-age vs age-within
+pqlseq_model %>%
+  ggplot(aes(beta_chron_age, beta_age, colour = age_diff)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  scale_color_gradient2(low = , mid = "white", high = , midpoint = 0, name = "") +
+  theme_classic(base_size=32) +
+  theme(legend.key.height= unit(2, 'cm')) +
+  ylab("Age Within") +
+  xlab("Chronological Age")
+
+pqlseq_model %>%
+  ggplot(aes(log(age_ratio), fill=after_stat(x))) +
+  geom_histogram(bins = 50, colour = "black", position = 'identity') +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
+  scale_fill_gradient2(low = "steelblue2", mid = "white", high = "hotpink3", midpoint = 0, name = "Beta Difference") +
+  xlab("Log(|Beta (Age Within)|/|Beta (Chron Age)|)") +
+  ylab("Hypomethylated Regions") +
+  theme_classic(base_size = 32) +
+  theme(legend.position = "none")
+
+#Comparison of distributions
+age_betas<- pqlseq_model %>%
+  dplyr::select(c(outcome, beta_age,, beta_mean_age, beta_chron_age, )) %>%
+  pivot_longer(!outcome, names_to = "var", values_to = "beta")
+
+age_fdr<- pqlseq_model %>%
+  dplyr::select(c(outcome, fdr_age, fdr_mean_age, fdr_chron_age)) %>%
+  pivot_longer(!outcome, names_to = "var", values_to = "fdr")
+
+age_effects<- cbind(age_betas, age_fdr[,3])
+
+age_effects$var<- gsub("beta_", "", age_effects$var)
+
+rm(age_betas);rm(age_fdr)
+
+age_effects %>%
+  filter(var != "mean_age") %>%
+  ggplot(aes(beta, fill = var)) +
+  geom_density(colour="black", position = "identity", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
+  scale_fill_manual(values = c("hotpink3", "steelblue2")) +
+  theme_classic(base_size = 32) +
+  xlab("Beta") +
+  ylab("Density")
+
+age_effects %>%
+  filter(var != "mean_age") %>%
+  ggplot(aes(var, beta, fill = var)) +
+  geom_boxplot(width=0.3) +
+  geom_hline(yintercept = 0, colour = "black", linetype = "dashed") +
+  scale_fill_manual(values = c("hotpink3", "steelblue2")) +
+  theme_classic(base_size = 32) +
+  xlab("Density") +
+  ylab("Beta")
 
 #Plot pqlseq features-----------------------------------------------------------
 age.w.count<- nrow(pqlseq_model[pqlseq_model$fdr_age < 0.05,])
@@ -795,17 +802,35 @@ pqlseq_anno$anno_class<- factor(pqlseq_anno$anno_class, levels = rev(annos))
 pqlseq_anno<- pqlseq_anno %>%
   dplyr::relocate(c(anno_class, anno_source), .after=anno)
 
-pqlseq_anno$signif<- "Non-Significant"
-pqlseq_anno$signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
-pqlseq_anno$signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
+pqlseq_anno$agew_signif<- "Non-Significant"
+pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
+pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
 
-pqlseq_anno$signif<- factor(pqlseq_anno$signif, levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+pqlseq_anno$agew_signif<- factor(pqlseq_anno$agew_signif, 
+                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+pqlseq_anno$agechron_signif<- "Non-Significant"
+pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age < 0]<- "Age-Hypomethylated"
+pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age > 0]<- "Age-Hypermethylated"
+
+pqlseq_anno$agechron_signif<- factor(pqlseq_anno$agechron_signif, 
+                                     levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
 
 pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
 
 #Plot annotation proportions----------------------------------------------------
-d2<- pqlseq_anno %>% 
-  group_by(anno_class, signif) %>% 
+agew<- pqlseq_anno %>% 
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(anno_class, agew_signif) %>% 
+  dplyr::rename(signif = agew_signif) %>%
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+agechron<- pqlseq_anno %>% 
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(anno_class, agechron_signif) %>% 
+  dplyr::rename(signif = agechron_signif) %>%
   summarise(count = n()) %>% 
   mutate(perc = count/sum(count))
 
@@ -818,17 +843,33 @@ d3<- pqlseq_anno %>%
 
 d3$anno_class<- "All"
 
-d2<- rbind(d2, d3)
-annos2<- unique(d2$anno_class)
-d2$anno_class<- factor(d2$anno_class, levels = annos2)
+agew<- rbind(agew, d3)
+annos2<- unique(agew$anno_class)
+agew$anno_class<- factor(agew$anno_class, levels = annos2)
 
-d2 %>%
+agechron<- rbind(agechron, d3)
+agechron$anno_class<- factor(agechron$anno_class, levels = annos2)
+
+age_total %>%
   ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
   geom_bar(stat="identity", width = 0.7, colour="black") +
-  #geom_text(label=d2$count, hjust=-2) +
+  #geom_text(label=df$count, hjust=-5) +
+  geom_vline(xintercept = 50, linetype = 'dashed') +
   theme_classic(base_size=32) +
   theme(legend.position = "none") +
   scale_fill_manual(values = c("hotpink", "gray90", "hotpink3")) +
+  ylab("Annotation") +
+  xlab("Percentage") +
+  facet_wrap(vars(type))
+
+agechron %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=df$count, hjust=-5) +
+  geom_vline(xintercept = 50, linetype = 'dashed') +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("steelblue2", "gray90", "steelblue4")) +
   ylab("Annotation") +
   xlab("Percentage")
 

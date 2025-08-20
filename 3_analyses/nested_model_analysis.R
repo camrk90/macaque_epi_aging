@@ -149,17 +149,31 @@ nested_pqlseq %>%
   xlab("Estimate") +
   theme_classic(base_size = 30)
 
-#Plot significant estimates
+#Boxplot of hypermethylated significant estimates
 nested_pqlseq %>%
   filter(beta > 0 & fdr < 0.05) %>%
   ggplot(aes(sex, beta)) +
   #geom_jitter(aes(colour = sex), alpha = 0.7)+
-  geom_boxplot(aes(fill = sex), width=0.5) +
+  geom_boxplot(aes(fill = sex), width=0.3) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  ylab("Estimate (FDR < 0.05)") +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  ylab("Beta (FDR < 0.05)") +
   xlab("Sex") +
-  theme_classic(base_size = 30)
+  theme_classic(base_size = 30) +
+  theme(legend.position = "none")
+
+#Boxplot of hyp0methylated significant estimates
+nested_pqlseq %>%
+  filter(beta < 0 & fdr < 0.05) %>%
+  ggplot(aes(sex, beta)) +
+  #geom_jitter(aes(colour = sex), alpha = 0.7)+
+  geom_boxplot(aes(fill = sex), width=0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  ylab("Beta (FDR < 0.05)") +
+  xlab("Sex") +
+  theme_classic(base_size = 30) +
+  theme(legend.position = "none")
 
 #Plot estimates by chromosome by sex
 df<- nested_pqlseq %>%
@@ -420,6 +434,9 @@ m_full$signif[m_full$fdr < 0.05 & m_full$beta > 0]<- "Age-Hypermethylated"
 
 m_full$signif<- factor(m_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
 
+m_full<- m_full %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_"))
+
 f_chmm<- anno_join(f_nested, chmm_intersect, "chmm")
 f_re<- anno_join(f_nested, re_anno, "re")
 f_full<- rbind(f_chmm, f_re, f_prom)
@@ -441,16 +458,31 @@ f_full$signif[f_full$fdr < 0.05 & f_full$beta > 0]<- "Age-Hypermethylated"
 
 f_full$signif<- factor(f_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
 
+f_full<- f_full %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_"))
+
 #Plot basics--------------------------------------------------------------------
 m_proportions<- m_full %>% 
   group_by(anno_class, signif) %>% 
   summarise(count = n()) %>% 
   mutate(perc = count/sum(count))
 
+d3<- m_full %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(signif) %>%
+  summarise(count = n()) %>%
+  mutate(perc = count/sum(count))
+
+d3$anno_class<- "All"
+
+m_proportions<- rbind(m_proportions, d3)
+annos2<- unique(m_proportions$anno_class)
+m_proportions$anno_class<- factor(m_proportions$anno_class, levels = annos2)
+
 m_proportions %>%
   ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
   geom_bar(stat="identity", width = 0.7, colour="black") +
-  #geom_text(label=d2$count, hjust=-2) +
   theme_classic(base_size=32) +
   theme(legend.position = "none") +
   scale_fill_manual(values = c("magenta1", "gray90", "darkmagenta")) +
@@ -462,6 +494,20 @@ f_proportions<- f_full %>%
   summarise(count = n()) %>% 
   mutate(perc = count/sum(count))
 
+d3<- f_full %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(signif) %>%
+  summarise(count = n()) %>%
+  mutate(perc = count/sum(count))
+
+d3$anno_class<- "All"
+
+f_proportions<- rbind(f_proportions, d3)
+annos2<- unique(f_proportions$anno_class)
+f_proportions$anno_class<- factor(f_proportions$anno_class, levels = annos2)
+f_proportions$sex<- "F"
+
 f_proportions %>%
   ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
   geom_bar(stat="identity", width = 0.7, colour="black") +
@@ -472,43 +518,71 @@ f_proportions %>%
   ylab("Annotation") +
   xlab("Percentage")
 
+total_proportions<- 
+
 ######################################
 ###           ENRICHMENT           ###   
 ######################################
 #Hypo Enrichment---------------------------------------------------------------------
-hypo_enrichment<- function(model_df, var_opt){
+enrichment<- function(model_df, opt){
   
   df_list<- list()
   
-  df<- model_df
-  
-  if (var_opt=="class") {
+  for(i in unique(model_df$anno_class)) {
     
-    #create list of contingency tables for sex
-    for(i in unique(df$anno_class)){
+    df2<- model_df %>%
+      filter(anno_class == i) %>%
+      distinct(unique_cpg, .keep_all = T)
+    
+    df3<- model_df %>%
+      distinct(unique_cpg, .keep_all = T) %>%
+      filter(!unique_cpg %in% df2$unique_cpg)
+    
+    if (opt == "hypo"){
       
       #Counts for fdr < 0.05 & beta < 0
-      a<- nrow(df[df$fdr < 0.05 & df$beta < 0 & df$anno_class == i,])
-      b<- nrow(df[df$fdr < 0.05 & df$beta < 0 & df$anno_class != i,])
+      a<- nrow(df2[df2$fdr < 0.05 & df2$beta < 0,])
+      b<- nrow(df3[df3$fdr < 0.05 & df3$beta < 0,])
       
-      #Counts for fdr > 0.05
-      c<- nrow(df[!(df$fdr < 0.05 & df$beta < 0) & df$anno_class == i,])
-      d<- nrow(df[!(df$fdr < 0.05 & df$beta < 0) & df$anno_class != i,])
+      #Counts for NOT fdr < 0.05 & beta < 0
+      c<- nrow(df2[!(df2$fdr < 0.05 & df2$beta < 0),])
+      d<- nrow(df3[!(df3$fdr < 0.05 & df3$beta < 0),])
       
       #Generate contingency table
-      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
-                           "fdr>0.05" = c(c, d),
+      c_table<- data.frame("sig_hypo_Y" = c(a, b),
+                           "sig_hypo_N" = c(c, d),
                            row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
+      
+      if (all.equal(sum(c_table), length(unique(model_df$unique_cpg)))){
+        print(paste("Contingency table sum for", i, "matches unique cpg_loc length"))
+      }
       
       df_list[[length(df_list)+1]] = c_table
       
-      print(c_table)
+    } else if (opt == "hyper") {
       
+      #Counts for fdr < 0.05 & beta < 0
+      a<- nrow(df2[df2$fdr < 0.05 & df2$beta > 0,])
+      b<- nrow(df3[df3$fdr < 0.05 & df3$beta > 0,])
+      
+      #Counts for NOT fdr < 0.05 & beta < 0
+      c<- nrow(df2[!(df2$fdr < 0.05 & df2$beta > 0),])
+      d<- nrow(df3[!(df3$fdr < 0.05 & df3$beta > 0),])
+      
+      #Generate contingency table
+      c_table<- data.frame("sig_hyper_Y" = c(a, b),
+                           "sig_hyper_N" = c(c, d),
+                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
+      
+      if (all.equal(sum(c_table), length(unique(model_df$unique_cpg)))){
+        print(paste("Contingency table sum for", i, "matches unique cpg_loc length"))
+      }
+      
+      df_list[[length(df_list)+1]] = c_table
     }
-  } 
-  
+  }
   #name table list
-  names(df_list)<- unique(df$anno_class)
+  names(df_list)<- unique(model_df$anno_class)
   
   #Fisher test for each table and tidy with broom
   ft<- lapply(df_list, fisher.test)
@@ -528,39 +602,32 @@ hypo_enrichment<- function(model_df, var_opt){
     mutate(log_or = log(estimate),
            log_ci.lo = log(conf.low),
            log_ci.hi = log(conf.high))
+  
+  ft$anno_source<- "Repeat Elements"
+  ft$anno_source[ft$annotation == "Transcription Start Sites" | ft$annotation == "Active Transcription" |
+                   ft$annotation == "Enhancer Regions" | ft$annotation == "Quiescent States" | 
+                   ft$annotation == "Promoter"]<- "Transcription"
+  ft<- ft %>%
+    arrange(anno_source, log_or)
+  hyper_levels<- as.character(ft$annotation)
+  
+  #Rearrange factors to sort by type then log_or
+  ft$annotation<- factor(ft$annotation, levels = rev(annos))
+  
+  if (unique(model_df$sex) == "m") {
+    ft$type<- "M"
+  } else if (unique(model_df$sex) == "f"){
+    ft$type<- "F"
+  }
+  
+  return(ft)
 }
 
-#MALES
-m_hypo<- hypo_enrichment(m_full, "class")
+#HYPOMETHYLATION
+m_hypo<- enrichment(m_full, "hypo")
+f_hypo<- enrichment(f_full, "hypo")
 
-m_hypo$anno_source<- "Repeat Elements"
-m_hypo$anno_source[m_hypo$annotation == "Transcription Start Sites" | m_hypo$annotation == "Active Transcription" |
-                         m_hypo$annotation == "Enhancer Regions" | m_hypo$annotation == "Quiescent States" | 
-                          m_hypo$annotation == "Promoter"]<- "Transcription"
-m_hypo<- m_hypo %>%
-  arrange(anno_source)
-hypo_levels<- as.character(m_hypo$annotation)
-
-#Rearrange factors to sort by type then log_or
-m_hypo$annotation<- factor(m_hypo$annotation, levels = rev(annos))
-m_hypo$type<- "M"
-
-#FEMALES
-f_hypo<- hypo_enrichment(f_full, "class")
-
-f_hypo$anno_source<- "Repeat Elements"
-f_hypo$anno_source[f_hypo$annotation == "Transcription Start Sites" | f_hypo$annotation == "Active Transcription" |
-                      f_hypo$annotation == "Enhancer Regions" | f_hypo$annotation == "Quiescent States" | 
-                      f_hypo$annotation == "Promoter"]<- "Transcription"
-f_hypo<- f_hypo %>%
-  arrange(anno_source)
-hypo_levels<- as.character(f_hypo$annotation)
-
-#Rearrange factors to sort by type then log_or
-f_hypo$annotation<- factor(f_hypo$annotation, levels = rev(annos))
-f_hypo$type<- "F"
-
-full_hypo<- rbind(m_hypo, f_hypo)
+full_hypo<- rbind(f_hypo, m_hypo)
 
 full_hypo %>%
   ggplot(aes(x=annotation, y=estimate, fill = type, alpha = padj < 0.05)) +
@@ -575,99 +642,19 @@ full_hypo %>%
   xlab("Annotation") +
   coord_flip()
 
-#Hyper Enrichment---------------------------------------------------------------------
-hyper_enrichment<- function(model_df, var_opt){
-  
-  df_list<- list()
-  
-  df<- model_df
-  
-  if (var_opt=="class") {
-    
-    #create list of contingency tables for sex
-    for(i in unique(df$anno_class)){
-      
-      #Counts for fdr < 0.05 & beta < 0
-      a<- nrow(df[df$fdr < 0.05 & df$beta > 0 & df$anno_class == i,])
-      b<- nrow(df[df$fdr < 0.05 & df$beta > 0 & df$anno_class != i,])
-      
-      #Counts for fdr > 0.05
-      c<- nrow(df[!(df$fdr < 0.05 & df$beta > 0) & df$anno_class == i,])
-      d<- nrow(df[!(df$fdr < 0.05 & df$beta > 0) & df$anno_class != i,])
-      
-      #Generate contingency table
-      c_table<- data.frame("fdr<0.05 & beta < 0" = c(a, b),
-                           "fdr>0.05" = c(c, d),
-                           row.names = c(paste(i, "Y", sep=""), paste(i, "N", sep="")))
-      
-      df_list[[length(df_list)+1]] = c_table
-      
-      print(c_table)
-      
-    }
-  } 
-  
-  #name table list
-  names(df_list)<- unique(df$anno_class)
-  
-  #Fisher test for each table and tidy with broom
-  ft<- lapply(df_list, fisher.test)
-  ft<- lapply(ft, broom::tidy)
-  
-  ft<- do.call(rbind, ft)
-  ft<- ft %>%
-    mutate(annotation = rownames(ft))
-  
-  #FDR p-val adjustment
-  ft<- ft %>%
-    mutate(padj = p.adjust(p.value)) %>%
-    mutate_at(vars(annotation), as.factor)
-  
-  #Log estimates and CIs
-  ft<- ft %>%
-    mutate(log_or = log(estimate),
-           log_ci.lo = log(conf.low),
-           log_ci.hi = log(conf.high))
-}
-
-#MALES
-m_hyper<- hyper_enrichment(m_full, "class")
-
-m_hyper$anno_source<- "Repeat Elements"
-m_hyper$anno_source[m_hyper$annotation == "Transcription Start Sites" | m_hyper$annotation == "Active Transcription" |
-                      m_hyper$annotation == "Enhancer Regions" | m_hyper$annotation == "Quiescent States" | 
-                      m_hyper$annotation == "Promoter"]<- "Transcription"
-m_hyper<- m_hyper %>%
-  arrange(anno_source)
-hyper_levels<- as.character(m_hyper$annotation)
-
-#Rearrange factors to sort by type then log_or
-m_hyper$annotation<- factor(m_hyper$annotation, levels = rev(annos))
-m_hyper$type<- "M"
 
 #FEMALES
-f_hyper<- hyper_enrichment(f_full, "class")
+m_hyper<- enrichment(m_full,"hyper")
+f_hyper<- enrichment(f_full,"hyper")
 
-f_hyper$anno_source<- "Repeat Elements"
-f_hyper$anno_source[f_hyper$annotation == "Transcription Start Sites" | f_hyper$annotation == "Active Transcription" |
-                      f_hyper$annotation == "Enhancer Regions" | f_hyper$annotation == "Quiescent States" | 
-                      f_hyper$annotation == "Promoter"]<- "Transcription"
-f_hyper<- f_hyper %>%
-  arrange(anno_source)
-hyper_levels<- as.character(f_hyper$annotation)
-
-#Rearrange factors to sort by type then log_or
-f_hyper$annotation<- factor(f_hyper$annotation, levels = rev(annos))
-f_hyper$type<- "F"
-
-full_hyper<- rbind(m_hyper, f_hyper)
+full_hyper<- rbind(f_hyper, m_hyper)
 
 full_hyper %>%
   ggplot(aes(x=annotation, y=estimate, fill = type, alpha = padj < 0.05)) +
-  geom_col(position = position_dodge(0.5)) +
+  geom_col(position = position_dodge(0.5), colour="black") +
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_errorbar(ymin = full_hyper$conf.low, ymax = full_hyper$conf.high, width = 0.3, position = position_dodge(0.7)) +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  scale_fill_manual(values = c("darkolivegreen1", "magenta1"), name = "Sex") +
   theme_classic(base_size = 32) +
   theme(legend.position = "none") +
   #ylim(c(-1, 7)) +

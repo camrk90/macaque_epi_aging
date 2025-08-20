@@ -137,10 +137,38 @@ selected_chrs<- gsub(" ", "", paste("chr", selected_chrs))
 chmm_mmul2<- keepSeqlevels(chmm_mmul, selected_chrs, pruning.mode = "coarse")
 chmm_mmul2<- sort(chmm_mmul2)
 
+#CpG Islands--------------------------------------------------------------------
+cpg_islands<- read.csv("/scratch/ckelsey4/Cayo_meth/intersect_files/cpgIslandExt.txt", sep = "\t", header = F)
+cpg_islands<- cpg_islands[, 2:4]
+colnames(cpg_islands)<- c("chrom", "chromStart", "chromEnd")
+chrs<- paste0("chr", c(seq(1, 20, 1), "X", "Y"), sep = "")
+cpg_islands<- cpg_islands %>%
+  filter(chrom %in% chrs)
+cpg_islands<- cpg_islands %>%
+  mutate(chromStart = chromStart + 1)
+  
+cpg_shores<- cpg_islands[, 1:2]
+cpg_shores<- cpg_shores %>% 
+  dplyr::rename(chromEnd = chromStart) %>%
+  mutate(chromStart = chromEnd - 2000) %>%
+  relocate(chromStart, .before = chromEnd)
+cpg_shores_1<- as.data.frame(cpg_islands[,c(1,3)])
+cpg_shores_1<- cpg_shores_1 %>%
+  dplyr::rename(chromStart = chromEnd) %>%
+  mutate(chromEnd = chromStart + 2000)
+
+cpg_shores<- rbind(cpg_shores, cpg_shores_1)
+cpg_shores<- cpg_shores %>%
+  mutate(chromStart = (ifelse(chromStart < 0, 0, chromStart)) + 1) %>%
+  arrange(chrom, chromStart)
+
+
 #Export files as .bed for intersect---------------------------------------------
 setwd('/scratch/ckelsey4/Cayo_meth/intersect_files')
 rtracklayer::export.bed(macaque_promoters, con = "promoters.bed")
 rtracklayer::export.bed(regions_bed, con = "glm_regions.bed")
 rtracklayer::export.bed(repeats_bed, con = "repeats.bed")
 rtracklayer::export.bed(chmm_mmul2, con = "chmm_mmul.bed")
+rtracklayer::export.bed(cpg_shores, con = "cpg_shores.bed")
+rtracklayer::export.bed(cpg_islands, con = "cpg_islands.bed")
 

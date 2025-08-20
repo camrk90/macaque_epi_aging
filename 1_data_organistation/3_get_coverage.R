@@ -4,10 +4,6 @@ library(comethyl)
 setwd("/scratch/ckelsey4/Cayo_meth")
 
 #Load in data-------------------------------------------------------------------
-long_data<- readRDS("long_data_adjusted")
-long_data<- long_data %>%
-  arrange(lid_pid)
-
 #Generate vector of chromosomes
 chrs<- c(1:20, "X", "Y")
 
