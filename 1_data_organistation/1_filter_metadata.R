@@ -1,6 +1,7 @@
 library(tidyverse)
 library(GENESIS)
 setwd("/scratch/ckelsey4/Cayo_meth")
+setwd("/Users/cameronkelsey/Documents/smack_lab/cayo_data/cayo_meth copy")
 
 #FILTER METADTA FOR REPEATED SAMPLES--------------------------------------------
 #import metadata
@@ -9,7 +10,11 @@ blood_metadata<- read.table("metadata_temp_clean_241106.txt", header = T, fill =
 #Filter for whole blood and add pid col
 blood_metadata<- blood_metadata %>%
   filter(grantparent_tissueType == "whole_blood") %>%
+<<<<<<< HEAD
   mutate(pid = str_split_i(lid_pid, "_", 4)) %>%
+=======
+  mutate(pid = paste0("PID_", str_split_i(lid_pid, "_", 4))) %>%
+>>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
   relocate(pid, .after = lid_pid)
 
 #Add university prepped
@@ -20,7 +25,11 @@ blood_metadata$university<- "uw"
 blood_metadata$university[blood_metadata$prep_year > 2019]<- "asu"
 
 #filter for samples with n>2 per id
+<<<<<<< HEAD
 long_metadata<- blood_metadata %>%
+=======
+long_metadata<- long_metadata %>%
+>>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
   group_by(monkey_id) %>%
   mutate(n = n()) %>%
   filter(n >= 2)
@@ -38,12 +47,27 @@ long_metadata<- long_metadata %>%
 long_metadata<- long_metadata %>%
   ungroup() %>%
   arrange(monkey_id)
+<<<<<<< HEAD
 
 #Filter out ids that have two entries at the same age
 #long_metadata_short<- long_metadata_short %>%
   #group_by(monkey_id) %>%
   #distinct(age_at_sampling, .keep_all = T) %>%
   #mutate(n = n())
+=======
+
+#Select important cols
+long_metadata<- long_metadata %>%
+  dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n, 
+                processing_timestamp, prep_date, university)
+
+#Filter out ids that have two entries at the same age
+#MAYBE NEED TO ADJUST THIS TO FILTER OUT THE LID WITH THE WORST COVERAGE
+long_metadata<- long_metadata %>%
+  group_by(monkey_id) %>%
+  distinct(age_at_sampling, .keep_all = T) %>%
+  mutate(n = n())
+>>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
 
 #Drop NA rows
 #long_metadata_short<- long_metadata_short %>%
