@@ -76,7 +76,7 @@ if (all.equal(blood_metadata$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]])) 
                                 lib_size = cov, model="BMM")
   
   #Save pqlseq models
-  saveRDS(age_model, paste("wb", "cs", SAMP, sep = "_"))
+  saveRDS(age_model, paste("wb", "cs", SAMP, ".rds", sep = "_"))
   
 } else {
   
