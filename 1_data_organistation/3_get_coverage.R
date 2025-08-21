@@ -4,19 +4,18 @@ library(comethyl)
 setwd("/scratch/ckelsey4/Cayo_meth")
 
 #Load in data-------------------------------------------------------------------
-#Generate vector of chromosomes
-chrs<- c(1:20, "X", "Y")
-
 #Regions
-regions<- readRDS("regions_filtered")
+regions<- readRDS("regions_filtered.rds")
 
 #Genes/Promoters
 genes<- readRDS("macaque_genes")
 promoters<- readRDS("macaque_promoters")
 
 #Filtered Cayo bsseq for regions
-cayo_filtered_list<- readRDS("cayo_filtered_list")
-names(cayo_filtered_list)<- chrs
+cayo_filtered_list<- readRDS("cayo_filtered_list.rds")
+
+#Generate vector of chr names
+chrs<- names(cayo_filtered_list)
 
 ###################################
 ##### Generate M/Cov Matrices #####
@@ -65,7 +64,7 @@ regions_m_list<- parallel::mclapply(names(cayo_filtered_list),function(x){
                  what = "perRegionTotal")
   rownames(dd)<- rownames(regions[regions$chr == x,])
   return(as.data.frame(dd))
-},mc.cores=20)
+},mc.cores=21)
 
 names(regions_m_list)<- chrs
 
@@ -74,7 +73,7 @@ regions_cov_list<- parallel::mclapply(names(cayo_filtered_list),function(x){
                  what = "perRegionTotal")
   rownames(dd)<- rownames(regions[regions$chr == x,])
   return(as.data.frame(dd))
-},mc.cores=20)
+},mc.cores=21)
 
 names(regions_cov_list)<- chrs
 
@@ -117,30 +116,20 @@ filter_regions<- function(region_list){
   
   #Unlist chrs to full matrix of regions across the genome
   df<- do.call(rbind, region_list[c(1:20, "X")])
-  df_y<- region_list[["Y"]]
   
   #Remove NAs
   df<- df %>% drop_na()
-  df_y<- df_y %>% drop_na()
   
   #Filter samples with less than 70% of regions covered and regions with less than 25% coverage
   df<- df[,colSums(df >= 1) >= 0.70*nrow(df)]
   df<- df[rowSums(df >= 1) >= 0.25*ncol(df),]
   
-  df_y<- df_y[,colSums(df_y >= 1) >= 0.70*nrow(df_y)]
-  df_y<- df_y[rowSums(df_y >= 1) >= 0.25*ncol(df_y),]
-  
   #Generate col with chromosome number
   df$chr<- rownames(df)
   df$chr<- str_split_i(df$chr,"\\.",1)
   
-  df_y$chr<- rownames(df_y)
-  
   #Re-list regions
   r_list<- split(df[, -ncol(df)], df$chr)
-  y_list<- list(df_y)
-  names(y_list)<- "Y"
-  r_list<- append(r_list, y_list)
   return(r_list)
 }
 
@@ -200,7 +189,7 @@ regions_cov_filtered<- filter_tails(x=regions_m_list, y=regions_cov_list)
 
 #Filter samples with less than 70% of regions covered and regions with less than 25% coverage
 regions_cov_filtered<- filter_regions(region_list = regions_cov_filtered)
-regions_cov_filtered<- regions_cov_filtered[c(1:20, "X", "Y")]
+regions_cov_filtered<- regions_cov_filtered[c(1:20, "X")]
 
 #Subset M list with filtered cov list
 regions_m_filtered<- sapply(names(regions_m_list), function(x){
@@ -221,15 +210,15 @@ regions_m_filtered<- sapply(names(regions_m_list), function(x){
 
 #Save rds files-----------------------------------------------------------------
 #Promoters
-saveRDS(prom_m_filtered, "prom_m_filtered")
-saveRDS(prom_cov_filtered, "prom_cov_filtered")
+saveRDS(prom_m_filtered, "prom_m_filtered.rds")
+saveRDS(prom_cov_filtered, "prom_cov_filtered.rds")
 
 #Genes
-saveRDS(genes_m_filtered, "genes_m_filtered")
-saveRDS(genes_cov_filtered, "genes_cov_filtered")
+saveRDS(genes_m_filtered, "genes_m_filtered.rds")
+saveRDS(genes_cov_filtered, "genes_cov_filtered.rds")
 
 #Regions
-saveRDS(regions_m_filtered, "regions_m_filtered")
-saveRDS(regions_cov_filtered, "regions_cov_filtered")
+saveRDS(regions_m_filtered, "regions_m_filtered.rds")
+saveRDS(regions_cov_filtered, "regions_cov_filtered.rds")
 
 

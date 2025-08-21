@@ -1,20 +1,16 @@
 library(tidyverse)
 library(GENESIS)
-setwd("/scratch/ckelsey4/Cayo_meth")
-setwd("/Users/cameronkelsey/Documents/smack_lab/cayo_data/cayo_meth copy")
+
+path<- "/scratch/ckelsey4/Cayo_meth/"
 
 #FILTER METADTA FOR REPEATED SAMPLES--------------------------------------------
 #import metadata
-blood_metadata<- read.table("metadata_temp_clean_241106.txt", header = T, fill = T)
+blood_metadata<- read.table(paste0(path, "metadata_temp_clean_241106.txt", sep = ""), header = T, fill = T)
 
 #Filter for whole blood and add pid col
 blood_metadata<- blood_metadata %>%
   filter(grantparent_tissueType == "whole_blood") %>%
-<<<<<<< HEAD
-  mutate(pid = str_split_i(lid_pid, "_", 4)) %>%
-=======
   mutate(pid = paste0("PID_", str_split_i(lid_pid, "_", 4))) %>%
->>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
   relocate(pid, .after = lid_pid)
 
 #Add university prepped
@@ -25,58 +21,57 @@ blood_metadata$university<- "uw"
 blood_metadata$university[blood_metadata$prep_year > 2019]<- "asu"
 
 #filter for samples with n>2 per id
-<<<<<<< HEAD
 long_metadata<- blood_metadata %>%
-=======
-long_metadata<- long_metadata %>%
->>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
   group_by(monkey_id) %>%
   mutate(n = n()) %>%
   filter(n >= 2)
 
-#Add mean age col
+#Add mean age and within age col
 long_metadata<- long_metadata %>%
   group_by(monkey_id) %>%
-  mutate(mean.age = mean(age_at_sampling))
-
-#Add mean-centred age col
-long_metadata<- long_metadata %>%
-  mutate(within.age = age_at_sampling - mean.age)
-
-#Arrange by id
-long_metadata<- long_metadata %>%
+  mutate(mean.age = mean(age_at_sampling),
+         within.age = age_at_sampling - mean.age) %>%
   ungroup() %>%
   arrange(monkey_id)
-<<<<<<< HEAD
-
-#Filter out ids that have two entries at the same age
-#long_metadata_short<- long_metadata_short %>%
-  #group_by(monkey_id) %>%
-  #distinct(age_at_sampling, .keep_all = T) %>%
-  #mutate(n = n())
-=======
 
 #Select important cols
 long_metadata<- long_metadata %>%
   dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n, 
-                processing_timestamp, prep_date, university)
-
-#Filter out ids that have two entries at the same age
-#MAYBE NEED TO ADJUST THIS TO FILTER OUT THE LID WITH THE WORST COVERAGE
-long_metadata<- long_metadata %>%
-  group_by(monkey_id) %>%
-  distinct(age_at_sampling, .keep_all = T) %>%
-  mutate(n = n())
->>>>>>> 4f8b7c952b676820ba3dd924efca5fe1003eb690
-
-#Drop NA rows
-#long_metadata_short<- long_metadata_short %>%
-  #drop_na()
+                processing_timestamp, prep_date, university, unique)
 
 write.table(long_metadata_short, 'long_data_adjusted.txt',
             quote=F)
 write.table(blood_metadata, "blood_metadata_full.txt", 
             quote=F)
+
+#Organize BSseq data in chrs
+#Autosomes/ChrX
+cayo<- readRDS("/scratch/nsnyderm/cayo_rrbs/bismarkBSseq.rds")
+colnames(cayo)=gsub(".CpG_report.merged_CpG_evidence.cov.gz","",str_split_i(colnames(cayo),"\\/",6))
+
+#ChrY
+cayo_Y<- readRDS("bismarkBSseq_Y.rds")
+colnames(cayo_Y)=gsub(".CpG_report.merged_CpG_evidence.cov.gz","",colnames(cayo_Y))
+
+selected_chrs<- c(1:20, "X")
+
+#Arrange metadata by lid
+blood_metadata<- blood_metadata %>%
+  arrange(lid_pid)
+
+#Subset cayo bsseq with lids from longitudinal metadata
+cayo_blood<- cayo[, cayo@colData@rownames %in% blood_metadata$lid_pid]
+cayo_Y<- cayo_Y[, cayo_Y@colData@rownames %in% blood_metadata$lid_pid]
+all.equal(cayo_blood@colData@rownames, blood_metadata$lid_pid)
+
+#Split bsseq by chromosome
+cayo_blood_list<- parallel::mclapply(selected_chrs,function(x){
+  chrSelectBSseq(cayo_blood, seqnames = x, order = TRUE)
+}, mc.cores=21)
+
+names(cayo_blood_list)<- 1:21
+
+saveRDS(cayo_blood_list, paste0(path, "cayo_blood_full.rds", sep=""))
 
 ########################### GENERATE KINSHIP MATRIX ############################
 #Generate vector of animal ids
@@ -86,8 +81,8 @@ monkey_vector<- blood_metadata$monkey_id
 file.king <- c("king.kin0")
 
 #Generate kin matrix
-kin.matrix<-kingToMatrix(file.king, estimator = "Kinship", sample.include=monkey_vector)
-kinmat<-as.matrix(kin.matrix)
+kin.matrix<- kingToMatrix(file.king, estimator = "Kinship", sample.include=monkey_vector)
+kinmat<- as.matrix(kin.matrix)
 
 #Arrange kinmat colnames by metadata to match r_matrix
 kinmat<- kinmat[unique(blood_metadata$monkey_id),unique(blood_metadata$monkey_id)]
@@ -124,4 +119,4 @@ r_matrix[is.na(r_matrix)]<- 0
 full_kin<- r_matrix %*% kinmat %*% t(r_matrix)
 
 #Save output file as rds
-saveRDS(full_kin, "full_kin_matrix")
+saveRDS(full_kin, paste0(path, "full_kin_matrix.rds", sep=""))
