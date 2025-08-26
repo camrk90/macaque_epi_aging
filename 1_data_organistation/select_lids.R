@@ -3,28 +3,29 @@ setwd("/scratch/ckelsey4/Cayo_meth")
 
 #THIS SCRIPT IS FOR SELECTING LIDS WITH THE HIGHEST COV/M FOR THOSE THAT ARE DUPLICATED
 #AT THE SAME AGE
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data.txt")
 
-long_data<- readRDS("wb_long_metadata")
 meta_short<- long_data %>%
   group_by(monkey_id) %>%
   distinct(age_at_sampling, .keep_all = T) %>%
   mutate(n = n())
+
 meta_short<- meta_short[!meta_short$n == 1,]
 lids<- long_data[! long_data$lid_pid %in% meta_short$lid_pid,]
 
 #Import m/cov rds------------------------------------------------------------
-# load region lists that have been filtered for 5x coverage in 90% of samples
-regions_cov_list<- readRDS("regions_cov_list")
-regions_m_list<- readRDS("regions_m_list")
+#Import m/cov rds------------------------------------------------------------
+regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered.rds")
 
-#Subset regions list for lids with repeated measures
-regions_cov<- lapply(names(regions_cov_list), function(x){
-  regions_cov<- subset(regions_cov_list[[x]], select=lids$lid_pid)
+regions_cov<- lapply(names(regions_cov), function(x){
+  regions_cov<- subset(regions_cov[[x]], select=lids$lid_pid)
   return(regions_cov)
 })
 
-regions_m<- lapply(names(regions_m_list), function(x){
-  regions_m<- subset(regions_m_list[[x]], select=lids$lid_pid)
+regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered.rds")
+
+regions_m<- lapply(names(regions_m), function(x){
+  regions_m<- subset(regions_m[[x]], select=lids$lid_pid)
   return(regions_m)
 })
 
@@ -52,9 +53,8 @@ lids_min<- lids %>%
 #Subset out lids with multiple entries at the same age
 long_data<- long_data[!long_data$lid_pid %in% lids_min$lid_pid,]
 
-saveRDS(long_data, 'long_data_adjusted')
-
-
+write.table(long_data, 'long_data_adjusted.txt',
+            quote=F)
 
 
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env /packages/apps/spack/18/opt/spack/gcc-11.2.0/r-4.2.2-kpl/bin/Rscript
 
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=ckelsey4@asu.edu
+
 SAMP <- Sys.getenv("SLURM_ARRAY_TASK_ID")
 SAMP <- as.integer(SAMP)
 
@@ -8,11 +11,13 @@ library(PQLseq2)
 setwd("/scratch/ckelsey4/Cayo_meth/glmer_model_compare")
 
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
 
 long_data<- long_data %>%
   arrange(lid_pid) %>%
-  filter(age_at_sampling > 1)
+  filter(age_at_sampling > 1) %>%
+  dplyr::rename(perc_unique = unique) %>%
+  drop_na()
 
 #Import kinship matrix----------------------------------------------------------
 kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
@@ -22,10 +27,8 @@ kinship<- kinship[long_data$lid_pid, long_data$lid_pid]
 
 #Import m/cov rds------------------------------------------------------------
 # load region lists that have been filtered for 5x coverage in 90% of samples
-regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered")
-regions_cov<- regions_cov[1:21]
-regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered")
-regions_m<- regions_m[1:21]
+regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered.rds")
+regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered.rds")
 
 #Filter metadata to lids in regions list
 long_data<- long_data[long_data$lid_pid %in% colnames(regions_cov[[1]]),]
@@ -55,9 +58,9 @@ if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]]))) {
   ###################################
   #Run PQLseq for within_age-------------------------------------------------------------
   #Generate model matrix
-  predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + university, data = long_data)
+  predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + perc_unique, data = long_data)
   w.age_phenotype<- predictor_matrix[, 2]
-  w.age_covariates<- predictor_matrix[, 3:4]
+  w.age_covariates<- predictor_matrix[, 3:5]
   
   #Run pqlseq model
   w.age_pqlseq2_model<- pqlseq2(Y = meth, x = w.age_phenotype, 
@@ -67,7 +70,7 @@ if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]]))) {
   #Run PQLseq for mean_age-------------------------------------------------------------
   #Generate model matrix
   m.age_phenotype<- predictor_matrix[, 3]
-  m.age_covariates<- predictor_matrix[, c(2,4)]
+  m.age_covariates<- predictor_matrix[, c(2,4:5)]
   
   #Run pqlseq model
   m.age_pqlseq2_model<- pqlseq2(Y = meth, x = m.age_phenotype, 
@@ -76,9 +79,8 @@ if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]]))) {
   
   #Run PQLseq for sex-------------------------------------------------------------
   #Generate model matrix
-  predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + university, data = long_data)
   sex_phenotype<- predictor_matrix[, 4]
-  sex_covariates<- predictor_matrix[, c(2:3)]
+  sex_covariates<- predictor_matrix[, c(2:3,5)]
   
   #Run pqlseq model
   sex_pqlseq2_model<- pqlseq2(Y = meth, x = sex_phenotype, 
@@ -87,9 +89,9 @@ if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]]))) {
   
   #Run PQLseq for chronological age---------------------------------------------
   #Generate model matrix
-  predictor_matrix<- model.matrix(~ age_at_sampling + individual_sex + university, data = long_data)
+  predictor_matrix<- model.matrix(~ age_at_sampling + individual_sex + perc_unique, data = long_data)
   agechron_phenotype<- predictor_matrix[, 2]
-  agechron_covariates<- as.matrix(predictor_matrix[, 3])
+  agechron_covariates<- as.matrix(predictor_matrix[, 3:4])
   
   #Run pqlseq model
   agechron_pqlseq2_model<- pqlseq2(Y = meth, x = agechron_phenotype, 

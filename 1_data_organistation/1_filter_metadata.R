@@ -20,6 +20,9 @@ blood_metadata<- blood_metadata %>%
 blood_metadata$university<- "uw"
 blood_metadata$university[blood_metadata$prep_year > 2019]<- "asu"
 
+blood_metadata<- blood_metadata %>%
+  drop_na(age_at_sampling)
+
 #filter for samples with n>2 per id
 long_metadata<- blood_metadata %>%
   group_by(monkey_id) %>%
@@ -39,9 +42,20 @@ long_metadata<- long_metadata %>%
   dplyr::select(monkey_id, lid_pid, pid, age_at_sampling, mean.age, within.age, individual_sex, n, 
                 processing_timestamp, prep_date, university, unique)
 
-write.table(long_metadata_short, 'long_data_adjusted.txt',
+write.table(long_metadata, '/scratch/ckelsey4/Cayo_meth/long_data.txt',
             quote=F)
-write.table(blood_metadata, "blood_metadata_full.txt", 
+write.table(blood_metadata, "/scratch/ckelsey4/Cayo_meth/blood_metadata_full.txt", 
+            quote=F)
+
+long_ids<- unique(long_data$monkey_id)
+
+df<- blood_metadata[blood_metadata$monkey_id %in% long_ids,]
+
+df<- df %>%
+  group_by(monkey_id) %>%
+  sample_n(1)
+
+write.table(df, "/scratch/ckelsey4/Cayo_meth/long_lids_overlap.txt",
             quote=F)
 
 #Organize BSseq data in chrs
