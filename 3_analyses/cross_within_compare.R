@@ -167,12 +167,12 @@ p_meth<- as.data.frame(t(regions_m/regions_cov))
 compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
   
   df<- df %>%
-    filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
+    #filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
     mutate(diff = abs({{var1}}) - abs({{var2}}))
   
   eval(substitute(df_lm<- lm(var1 ~ var2, data=df)))
   
-  summary(df_lm)
+  #print(summary(df_lm))
     
   df %>%
     ggplot(aes({{var1}}, {{var2}}, colour = diff)) +
@@ -191,20 +191,16 @@ compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
 
 }
 
-compare_plot(age_full, fdr_short_cross, fdr_chron_age,
-             beta_short_cross, beta_chron_age,
-             "darkgoldenrod2", "hotpink3",
-             "Short Cross Age", "Chronological Age")
-
+#Full CS set plots
 compare_plot(age_full, fdr_long_cross, fdr_chron_age,
              beta_long_cross, beta_chron_age,
              "darkgoldenrod2", "steelblue2",
              "Full Cross Age", "Chronological Age")
 
-compare_plot(age_full, fdr_short_cross, fdr_within_age,
-             beta_short_cross, beta_within_age,
-             "purple", "hotpink3",
-             "Short Cross Age", "Within Age")
+compare_plot(age_full, fdr_long_cross, fdr_mean_age,
+             beta_long_cross, beta_mean_age,
+             "chartreuse3", "steelblue2",
+             "Full Cross Age", "Mean Age")
 
 compare_plot(age_full, fdr_long_cross, fdr_within_age,
              beta_long_cross, beta_within_age,
@@ -215,6 +211,22 @@ compare_plot(age_full, fdr_chron_age, fdr_within_age,
              beta_chron_age, beta_within_age,
              "purple", "darkgoldenrod2",
              "Chronological Age", "Within Age")
+
+#CS Subset Plots
+compare_plot(age_full, fdr_short_cross, fdr_within_age,
+             beta_short_cross, beta_within_age,
+             "purple", "hotpink3",
+             "Short Cross Age", "Within Age")
+
+compare_plot(age_full, fdr_short_cross, fdr_chron_age,
+             beta_short_cross, beta_chron_age,
+             "darkgoldenrod2", "hotpink3",
+             "Short Cross Age", "Chronological Age")
+
+compare_plot(age_full, fdr_short_cross, fdr_mean_age,
+             beta_short_cross, beta_mean_age,
+             "chartreuse3", "hotpink3",
+             "Short Cross Age", "Mean Age")
 
 age.w.count<- nrow(age_full[age_full$fdr_within_age < 0.05,])
 age.chron.count<- nrow(age_full[age_full$fdr_chron_age < 0.05,])
@@ -377,8 +389,8 @@ pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
 
 
 test<- pqlseq_anno %>%
-  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05) %>%
-  dplyr::select(c(anno_class, beta_within_age, beta_long_cross)) %>%
+  #filter(fdr_within_age < 0.05 & fdr_short_cross < 0.05) %>%
+  dplyr::select(c(anno_class, beta_within_age, beta_short_cross)) %>%
   pivot_longer(cols = starts_with("beta"),
                names_to = "age_var",
                values_to = "beta")
@@ -387,15 +399,15 @@ test %>%
   ggplot(aes(beta, fill = age_var)) +
   geom_density(alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("steelblue2", "purple")) +
+  scale_fill_manual(values = c("hotpink2", "purple")) +
   theme_classic(base_size=24)
 
 test %>%
   ggplot(aes(anno_class, beta, fill = age_var)) +
-  geom_violin(position = position_dodge(width = 0.6), width = 2) +
+  geom_violin(position = position_dodge(width = 0.5), width = 2) +
   #geom_boxplot(, fill="white") + 
   geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("steelblue2", "purple")) +
+  scale_fill_manual(values = c("hotpink2", "purple")) +
   theme_classic(base_size=24) +
   theme(axis.text.x = element_text(angle = 45, hjust=1))
 
