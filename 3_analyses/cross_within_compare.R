@@ -1,6 +1,8 @@
 library(tidyverse)
 library(ggplot2)
 library(ggcorrplot)
+library(variancePartition)
+library(ggvenn)
 
 #Define import function
 import_pqlseq<- function(x, y){
@@ -60,6 +62,18 @@ long_data<- long_data %>%
   filter(age_at_sampling > 1) %>%
   dplyr::rename(perc_unique = unique) %>%
   drop_na()
+
+long_data %>%
+  ggplot(aes(within.age)) +
+  geom_density() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_classic(base_size=24)
+
+long_data %>%
+  ggplot(aes(mean.age)) +
+  geom_density() +
+  geom_vline(xintercept = median(long_data$mean.age), linetype = "dashed") +
+  theme_classic(base_size=24)
 
 ######################################
 ###      Import Within Models      ###
@@ -122,15 +136,11 @@ sorted_labels<- str_sort(unique(age_full$chr), numeric=T)
 
 age_full<- age_full %>% 
   mutate(chr = factor(chr, levels = sorted_labels)) %>%
-  arrange(chr)
+  arrange(chr) %>%
+  mutate(region_range = paste(chromStart, "-", chromEnd, sep = " ")) %>%
+  relocate(region_range, .after = chromEnd)
 
 #rm(age_w_pqlseq);rm(age_m_pqlseq);rm(chron_age_pqlseq)
-
-age_full<- age_full %>%
-  mutate(beta_cross_age = as.numeric(beta_cross_age),
-         cross_diff = abs(beta_cross_age) - abs(beta_chron_age),
-         long_diff = abs(beta_within_age) - abs(beta_chron_age),
-         aging_diff = abs(beta_cross_age) - abs(beta_within_age))
 
 ######################################
 ###       Descriptive Stats        ###
@@ -141,6 +151,15 @@ age_full %>%
   cor(use="pairwise.complete.obs") %>%
   ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=5, sig.level = 0.05, insig = "blank")
 
+#Import m/cov rds
+regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered.rds")
+regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered.rds")
+
+regions_m<- do.call(rbind, regions_m)
+regions_cov<- do.call(rbind, regions_cov)
+
+p_meth<- as.data.frame(t(regions_m/regions_cov))
+
 ######################################
 ###       Plot Distributions       ###
 ######################################
@@ -148,17 +167,19 @@ age_full %>%
 compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
   
   df<- df %>%
-    filter(fdr1 < .05 | fdr2 < .05) %>%
-    mutate(diff = abs(var1) - abs(var2))
+    filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
+    mutate(diff = abs({{var1}}) - abs({{var2}}))
   
-  df_lm<- lm(var1 ~ var2, data=df)
+  eval(substitute(df_lm<- lm(var1 ~ var2, data=df)))
+  
+  summary(df_lm)
     
   df %>%
-    ggplot(aes(var1, var2, colour = diff)) +
+    ggplot(aes({{var1}}, {{var2}}, colour = diff)) +
     geom_point() +
     geom_abline() +
-    geom_abline(slope = test_lm[["coefficients"]][[2]], 
-                intercept = test_lm[["coefficients"]][[1]],
+    geom_abline(slope = df_lm[["coefficients"]][[2]], 
+                intercept = df_lm[["coefficients"]][[1]],
                 colour = "red") +
     geom_vline(xintercept=0, linetype="dashed") +
     geom_hline(yintercept=0, linetype="dashed") +
@@ -167,95 +188,230 @@ compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
     theme(legend.key.height= unit(2, 'cm')) +
     xlab(lab1) +
     ylab(lab2) 
+
 }
 
-#NEED TO FIX THIS FUNCTION
-compare_plot(age_full, 'fdr_short_cross', "fdr_chron_age",
+compare_plot(age_full, fdr_short_cross, fdr_chron_age,
              beta_short_cross, beta_chron_age,
              "darkgoldenrod2", "hotpink3",
              "Short Cross Age", "Chronological Age")
 
-age_full %>%
-  filter(fdr_short_cross < .05 | fdr_chron_age < .05) %>%
-  mutate(diff = abs(beta_short_cross) - abs(beta_chron_age)) %>%
-  ggplot(aes(beta_short_cross, beta_chron_age, colour = diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_smooth(method="lm") +
-  geom_vline(xintercept=0, linetype="dashed") +
-  geom_hline(yintercept=0, linetype="dashed") +
-  scale_color_gradient2(low = "darkgoldenrod2", mid = "white", high = "hotpink3", midpoint = 0, name = "") +
-  theme_classic(base_size=32) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Chronological Age") +
-  xlab("Short Cross Age")
+compare_plot(age_full, fdr_long_cross, fdr_chron_age,
+             beta_long_cross, beta_chron_age,
+             "darkgoldenrod2", "steelblue2",
+             "Full Cross Age", "Chronological Age")
 
-age_full %>%
-  filter(fdr_long_cross < .05 | fdr_chron_age < .05) %>%
-  mutate(diff = abs(beta_long_cross) - abs(beta_chron_age)) %>%
-  ggplot(aes(beta_long_cross, beta_chron_age, colour = diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_smooth(method="lm") +
-  geom_vline(xintercept=0, linetype="dashed") +
-  geom_hline(yintercept=0, linetype="dashed") +
-  scale_color_gradient2(low = "darkgoldenrod2", mid = "white", high = "steelblue2", midpoint = 0, name = "") +
-  theme_classic(base_size=32) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Chronological Age") +
-  xlab("Long Cross Age")
+compare_plot(age_full, fdr_short_cross, fdr_within_age,
+             beta_short_cross, beta_within_age,
+             "purple", "hotpink3",
+             "Short Cross Age", "Within Age")
 
-test<- age_full %>% filter(fdr_short_cross < .05 | fdr_within_age < .05)
-test_lm<- lm(beta_short_cross ~ beta_within_age, data = test)
-test_lm[["coefficients"]][1]
+compare_plot(age_full, fdr_long_cross, fdr_within_age,
+             beta_long_cross, beta_within_age,
+             "purple", "steelblue2",
+             "Full Cross Age", "Within Age")
 
-age_full %>%
-  filter(fdr_short_cross < .05 | fdr_within_age < .05) %>%
-  mutate(diff = abs(beta_short_cross) - abs(beta_within_age)) %>%
-  ggplot(aes(beta_short_cross, beta_within_age, colour = diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_abline(slope = test_lm[["coefficients"]][[2]], 
-              intercept = test_lm[["coefficients"]][[1]],
-              colour = "red",
-              linetype="dashed") +
-  #geom_smooth(method="lm") +
-  geom_vline(xintercept=0, linetype="dashed") +
-  geom_hline(yintercept=0, linetype="dashed") +
-  scale_color_gradient2(low = "purple", mid = "white", high = "hotpink3", midpoint = 0, name = "") +
-  theme_classic(base_size=32) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Within Age") +
-  xlab("Short Cross Age")
+compare_plot(age_full, fdr_chron_age, fdr_within_age,
+             beta_chron_age, beta_within_age,
+             "purple", "darkgoldenrod2",
+             "Chronological Age", "Within Age")
 
-age_full %>%
-  filter(fdr_long_cross < .05 | fdr_within_age < .05) %>%
-  mutate(diff = abs(beta_long_cross) - abs(beta_within_age)) %>%
-  ggplot(aes(beta_long_cross, beta_within_age, colour = diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_smooth(method="lm") +
-  geom_vline(xintercept=0, linetype="dashed") +
-  geom_hline(yintercept=0, linetype="dashed") +
-  scale_color_gradient2(low = "purple", mid = "white", high = "steelblue2", midpoint = 0, name = "") +
-  theme_classic(base_size=32) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Within Age") +
-  xlab("Long Cross Age")
+age.w.count<- nrow(age_full[age_full$fdr_within_age < 0.05,])
+age.chron.count<- nrow(age_full[age_full$fdr_chron_age < 0.05,])
+age.short.count<- nrow(age_full[age_full$fdr_short_cross < 0.05,])
+age.long.count<- nrow(age_full[age_full$fdr_long_cross < 0.05,])
+counts<- data.frame(count = c(age.w.count, age.chron.count, age.short.count, age.long.count),
+                    predictor = as.factor(c('Age Within', 'Age Chron', 'Age Short', 'Age Full')))
 
-age_full %>%
-  filter(fdr_chron_age < .05 | fdr_within_age < .05) %>%
-  mutate(diff = abs(beta_chron_age) - abs(beta_within_age)) %>%
-  ggplot(aes(beta_chron_age, beta_within_age, colour = diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_smooth(method="lm") +
-  geom_vline(xintercept=0, linetype="dashed") +
-  geom_hline(yintercept=0, linetype="dashed") +
-  scale_color_gradient2(low = "purple", mid = "white", high = "darkgoldenrod2", midpoint = 0, name = "") +
-  theme_classic(base_size=32) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  ylab("Within Age") +
-  xlab("Chronological Age")
+counts<- counts %>%
+  mutate(predictor = as.factor(predictor)) %>%
+  mutate(predictor=fct_reorder(predictor, count, .desc=T))
+counts$predictor
+
+rm(age.w.count);rm(age.m.count);rm(sex.count)
+
+counts %>%
+  ggplot(aes(predictor, count, fill = predictor)) +
+  geom_bar(stat = 'identity', colour="black") +
+  geom_text(label=counts$count, vjust=-1, size =5) +
+  theme_classic(base_size = 32) +
+  xlab("Predictor") +
+  ylab("Count") +
+  scale_fill_manual(values = c("steelblue2", "purple", "darkgoldenrod2", "hotpink3"))
+
+## Significant regions Venn diagram
+age.w<- age_full$outcome[age_full$fdr_within_age < 0.05]
+age.chron<- age_full$outcome[age_full$fdr_chron_age < 0.05]
+age.cross<- age_full$outcome[age_full$fdr_short_cross < 0.05]
+
+venn_list<- list(age.w, age.chron, age.cross)
+
+rm(age.w);rm(age.m);rm(sex)
+
+ggvenn(venn_list,
+       fill_color = c("purple", "hotpink3", "darkgoldenrod2"),
+       text_size = 8,
+       show_percentage = F)
+
+#Proportions
+agew<- pqlseq_anno %>% 
+  group_by(agew_signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+######################################
+###      JOIN INTERSECT FILES      ###   
+######################################
+##Import annotation files-------------------------------------------------------
+re_anno<- read_csv("/scratch/ckelsey4/Cayo_meth/re_annotations.csv")
+re_anno<- re_anno %>%
+  filter(chr != "Y")
+chmm_intersect<- read_csv("/scratch/ckelsey4/Cayo_meth/chmm_annotations.csv")
+chmm_intersect<- chmm_intersect %>%
+  filter(chr != "Y")
+promoters<- read_csv("/scratch/ckelsey4/Cayo_meth/promoters.csv")
+promoters<- promoters %>%
+  filter(chr != "Y")
+
+#Promoters----------------------------------------------------------------------
+pqlseq_prom<- left_join(promoters, age_full, by = c("region_range", "chr"))
+pqlseq_prom<- pqlseq_prom %>%
+  drop_na() %>%
+  distinct(anno, .keep_all = T)
+pqlseq_prom$anno_class<- "Promoter"
+pqlseq_prom<- pqlseq_prom %>%
+  dplyr::select(-c(chromStart, chromEnd, outcome))
+
+#CHMM---------------------------------------------------------------------------
+#Join pqlseq model and chmm 
+pqlseq_chmm<- left_join(chmm_intersect, age_full, by = c("region_range", "chr"))
+
+#Filter out regions with models that didn't converge resulting in NAs in the annotation join
+pqlseq_chmm<- pqlseq_chmm %>%
+  drop_na()
+
+#Select out unnecessary cols and rename
+pqlseq_chmm<- pqlseq_chmm %>%
+  dplyr::select(-c(outcome, chromStart, chromEnd))
+
+#Set annotations as factor and reorder
+annotations_ordered<- str_sort(unique(pqlseq_chmm$anno), numeric = TRUE)
+pqlseq_chmm$anno<- factor(pqlseq_chmm$anno, levels = rev(annotations_ordered))
+
+#Create column of broad categories for annotations
+#pqlseq_chmm$anno_class<- "A"
+pqlseq_chmm$anno_class<- "TSSs"
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[3:5]]<- "Active Tr."
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[6:8]]<- "Enhancers"
+pqlseq_chmm$anno_class[pqlseq_chmm$anno %in% annotations_ordered[9:15]]<- "Quiescent"
+
+#Set classes as factors
+class_factors<- c("TSSs", "Active Tr.", "Enhancers", "Quiescent")
+pqlseq_chmm$anno_class<- factor(pqlseq_chmm$anno_class, levels = rev(class_factors))
+
+#REPEAT ELEMENTS----------------------------------------------------------------
+#Join repeats annotations and glm_models df
+pqlseq_re<- left_join(re_anno, age_full, by = c("region_range", "chr"))
+
+pqlseq_re<- pqlseq_re %>%
+  drop_na()
+
+#Remove non-sensical annotations (NA, Unknown etc)
+pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "Unknown",]
+pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "DNA?",]
+pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "LTR?",]
+pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "RC?",]
+pqlseq_re<- pqlseq_re[!pqlseq_re$repClass == "Unspecified",]
+
+pqlseq_re$anno_class<- "Simple Repeats"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "TE Class I"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% "DNA"]<- "TE Class II"
+pqlseq_re$anno_class[pqlseq_re$repClass %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Str. RNAs"
+
+pqlseq_re<- pqlseq_re %>%
+  dplyr::rename(anno = repClass) %>%
+  dplyr::select(-c(repName, chromStart, chromEnd)) %>%
+  dplyr::relocate(anno, .after = anno_end)
+
+#Select out unnecessary cols and rename
+pqlseq_re<- pqlseq_re %>%
+  dplyr::select(-c(range, outcome))
+
+#Bind annotation dfs together---------------------------------------------------
+pqlseq_anno<- rbind(pqlseq_chmm, pqlseq_re, pqlseq_prom)
+
+annos<- c("Promoter", "TSSs", "Active Tr.", "Enhancers", "Quiescent", "Simple Repeats",
+          "TE Class I", "TE Class II", "Str. RNAs")
+
+pqlseq_anno$anno_source<- "Repeat Elements"
+pqlseq_anno$anno_source[pqlseq_anno$anno_class == "Transcription Start Sites" | pqlseq_anno$anno_class == "Active Transcription" |
+                          pqlseq_anno$anno_class == "Enhancer Regions" | pqlseq_anno$anno_class == "Quiescent States" | 
+                          pqlseq_anno$anno_class == "Promoter"]<- "Transcription"
+
+pqlseq_anno<- pqlseq_anno %>%
+  arrange(anno_source, anno_class)
+
+#Rearrange factors to sort by type then log_or
+pqlseq_anno$anno_class<- factor(pqlseq_anno$anno_class, levels = rev(annos))
+
+pqlseq_anno<- pqlseq_anno %>%
+  dplyr::relocate(c(anno_class, anno_source), .after=anno)
+
+pqlseq_anno$agew_signif<- "Non-Significant"
+pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
+pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
+
+pqlseq_anno$agew_signif<- factor(pqlseq_anno$agew_signif, 
+                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+pqlseq_anno$agechron_signif<- "Non-Significant"
+pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age < 0]<- "Age-Hypomethylated"
+pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age > 0]<- "Age-Hypermethylated"
+
+pqlseq_anno$agechron_signif<- factor(pqlseq_anno$agechron_signif, 
+                                     levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+
+pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
+
+
+
+test<- pqlseq_anno %>%
+  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05) %>%
+  dplyr::select(c(anno_class, beta_within_age, beta_long_cross)) %>%
+  pivot_longer(cols = starts_with("beta"),
+               names_to = "age_var",
+               values_to = "beta")
+
+test %>%
+  ggplot(aes(beta, fill = age_var)) +
+  geom_density(alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("steelblue2", "purple")) +
+  theme_classic(base_size=24)
+
+test %>%
+  ggplot(aes(anno_class, beta, fill = age_var)) +
+  geom_violin(position = position_dodge(width = 0.6), width = 2) +
+  #geom_boxplot(, fill="white") + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("steelblue2", "purple")) +
+  theme_classic(base_size=24) +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+
+######################################
+###     Hypomethylated Regions     ###
+######################################
+
+hypo<- age_full %>%
+  filter(beta_within_age < 0) %>%
+  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05)
+
+
+
+
+
+
 
 
