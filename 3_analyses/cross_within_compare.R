@@ -366,26 +366,10 @@ pqlseq_anno<- pqlseq_anno %>%
 #Rearrange factors to sort by type then log_or
 pqlseq_anno$anno_class<- factor(pqlseq_anno$anno_class, levels = rev(annos))
 
-pqlseq_anno<- pqlseq_anno %>%
-  dplyr::relocate(c(anno_class, anno_source), .after=anno)
-
-pqlseq_anno$agew_signif<- "Non-Significant"
-pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
-pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
-
-pqlseq_anno$agew_signif<- factor(pqlseq_anno$agew_signif, 
-                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
-
-pqlseq_anno$agechron_signif<- "Non-Significant"
-pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age < 0]<- "Age-Hypomethylated"
-pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age > 0]<- "Age-Hypermethylated"
-
-pqlseq_anno$agechron_signif<- factor(pqlseq_anno$agechron_signif, 
-                                     levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
-
-
 pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
 
+pqlseq_anno<- pqlseq_anno %>%
+  dplyr::relocate(c(anno_class, anno_source, unique_cpg), .after=anno)
 
 
 test<- pqlseq_anno %>%
@@ -413,14 +397,48 @@ test %>%
 
 
 ######################################
-###     Hypomethylated Regions     ###
+###    Cross-sectional Regions     ###
 ######################################
 
-hypo<- age_full %>%
-  filter(beta_within_age < 0) %>%
-  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05)
+cs_anno<- pqlseq_anno[, c(1:13, 32:37)]
 
+cs_anno$signif<- "Non-Significant"
+cs_anno$signif[cs_anno$fdr_long_cross < 0.05 & cs_anno$beta_long_cross < 0]<- "Age-Hypomethylated"
+cs_anno$signif[cs_anno$fdr_long_cross < 0.05 & cs_anno$beta_long_cross > 0]<- "Age-Hypermethylated"
 
+cs_anno$signif<- factor(cs_anno$signif, 
+                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+d1<- cs_anno %>% 
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(anno_class, signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+d2<- cs_anno %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(signif) %>%
+  summarise(count = n()) %>%
+  mutate(perc = count/sum(count))
+
+d2$anno_class<- "All"
+
+d3<- rbind(d1, d2)
+annos2<- unique(d3$anno_class)
+d3$anno_class<- factor(d3$anno_class, levels = annos2)
+
+d3 %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=df$count, hjust=-5) +
+  geom_vline(xintercept = 50, linetype = 'dashed') +
+  geom_vline(xintercept = 41.4, linetype = 'dashed') +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("hotpink", "gray90", "hotpink3")) +
+  ylab("Annotation") +
+  xlab("Percentage")
 
 
 
