@@ -167,7 +167,7 @@ p_meth<- as.data.frame(t(regions_m/regions_cov))
 compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
   
   df<- df %>%
-    #filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
+    filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
     mutate(diff = abs({{var1}}) - abs({{var2}}))
   
   eval(substitute(df_lm<- lm(var1 ~ var2, data=df)))
@@ -178,9 +178,10 @@ compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
     ggplot(aes({{var1}}, {{var2}}, colour = diff)) +
     geom_point() +
     geom_abline() +
-    geom_abline(slope = df_lm[["coefficients"]][[2]], 
-                intercept = df_lm[["coefficients"]][[1]],
-                colour = "red") +
+    #geom_abline(slope = df_lm[["coefficients"]][[2]], 
+                #intercept = df_lm[["coefficients"]][[1]],
+                #colour = "red") +
+    geom_smooth(method = "lm") +
     geom_vline(xintercept=0, linetype="dashed") +
     geom_hline(yintercept=0, linetype="dashed") +
     scale_color_gradient2(low = c1, mid = "white", high = c2, midpoint = 0, name = "") +
@@ -229,11 +230,11 @@ compare_plot(age_full, fdr_short_cross, fdr_mean_age,
              "Short Cross Age", "Mean Age")
 
 age.w.count<- nrow(age_full[age_full$fdr_within_age < 0.05,])
+age.mean.count<- nrow(age_full[age_full$fdr_mean_age < 0.05,])
 age.chron.count<- nrow(age_full[age_full$fdr_chron_age < 0.05,])
-age.short.count<- nrow(age_full[age_full$fdr_short_cross < 0.05,])
 age.long.count<- nrow(age_full[age_full$fdr_long_cross < 0.05,])
-counts<- data.frame(count = c(age.w.count, age.chron.count, age.short.count, age.long.count),
-                    predictor = as.factor(c('Age Within', 'Age Chron', 'Age Short', 'Age Full')))
+counts<- data.frame(count = c(age.w.count, age.mean.count, age.chron.count, age.long.count),
+                    predictor = as.factor(c('Age Within', 'Age Mean', 'Age Chron', 'Age Cross')))
 
 counts<- counts %>%
   mutate(predictor = as.factor(predictor)) %>%
@@ -245,11 +246,12 @@ rm(age.w.count);rm(age.m.count);rm(sex.count)
 counts %>%
   ggplot(aes(predictor, count, fill = predictor)) +
   geom_bar(stat = 'identity', colour="black") +
-  geom_text(label=counts$count, vjust=-1, size =5) +
+  geom_text(label=counts$count, vjust=-1, size=5) +
   theme_classic(base_size = 32) +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
   xlab("Predictor") +
   ylab("Count") +
-  scale_fill_manual(values = c("steelblue2", "purple", "darkgoldenrod2", "hotpink3"))
+  scale_fill_manual(values = c('steelblue2', "purple", 'darkgoldenrod2', 'chartreuse3'))
 
 ## Significant regions Venn diagram
 age.w<- age_full$outcome[age_full$fdr_within_age < 0.05]
@@ -265,11 +267,17 @@ ggvenn(venn_list,
        text_size = 8,
        show_percentage = F)
 
-#Proportions
-agew<- pqlseq_anno %>% 
-  group_by(agew_signif) %>% 
-  summarise(count = n()) %>% 
-  mutate(perc = count/sum(count))
+age_full %>%
+  dplyr::select(c(beta_within_age, beta_mean_age, beta_chron_age, beta_long_cross)) %>%
+  pivot_longer(cols = c(beta_within_age, beta_mean_age, beta_chron_age, beta_long_cross),
+               values_to = 'beta',
+               names_to = 'var') %>%
+  ggplot(aes(beta, fill=var)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  scale_fill_manual(values = c('darkgoldenrod2', 'steelblue2', 'chartreuse3', "purple")) +
+  theme_classic(base_size = 24) +
+  xlim(-0.25, 0.25)
 
 ######################################
 ###      JOIN INTERSECT FILES      ###   
@@ -370,31 +378,6 @@ pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
 
 pqlseq_anno<- pqlseq_anno %>%
   dplyr::relocate(c(anno_class, anno_source, unique_cpg), .after=anno)
-
-
-test<- pqlseq_anno %>%
-  #filter(fdr_within_age < 0.05 & fdr_short_cross < 0.05) %>%
-  dplyr::select(c(anno_class, beta_within_age, beta_short_cross)) %>%
-  pivot_longer(cols = starts_with("beta"),
-               names_to = "age_var",
-               values_to = "beta")
-
-test %>%
-  ggplot(aes(beta, fill = age_var)) +
-  geom_density(alpha = 0.7) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("hotpink2", "purple")) +
-  theme_classic(base_size=24)
-
-test %>%
-  ggplot(aes(anno_class, beta, fill = age_var)) +
-  geom_violin(position = position_dodge(width = 0.5), width = 2) +
-  #geom_boxplot(, fill="white") + 
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("hotpink2", "purple")) +
-  theme_classic(base_size=24) +
-  theme(axis.text.x = element_text(angle = 45, hjust=1))
-
 
 ######################################
 ###    Cross-sectional Regions     ###
