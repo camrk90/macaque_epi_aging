@@ -145,8 +145,45 @@ age_full<- age_full %>%
 ###       Descriptive Stats        ###
 ######################################
 
+#Cross-age age distribution
+blood_metadata %>%
+  ggplot(aes(age_at_sampling, fill=individual_sex)) +
+  geom_histogram(position = "dodge", colour = "black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_fill_manual(values = c("steelblue1", "steelblue4"), name = "Sex") +
+  theme_classic(base_size=24) +
+  ylab("Count") +
+  xlab("Age")
+
+#Longitudinal data distribution
+long_data %>%
+  ggplot(aes(age_at_sampling, fill=individual_sex)) +
+  geom_histogram(position = "dodge", colour = "black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_fill_manual(values = c("purple", "purple4"), name = "Sex") +
+  theme_classic(base_size=24) +
+  ylab("Count") +
+  xlab("Age")
+
+long_data<- long_data %>%
+  group_by(monkey_id) %>%
+  mutate(min_age = min(age_at_sampling))
+long_data$age_at_sampling<- round(long_data$age_at_sampling, 0)
+
+long_data %>%
+  ggplot(aes(x=age_at_sampling, y=reorder(monkey_id, min_age), colour=individual_sex)) +
+  geom_path(linewidth = 1.2, alpha = 0.8) +
+  geom_point(colour="black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_colour_manual(values = c("purple", "purple4"), name = "Sex") +
+  ylab("Individual") +
+  xlab("Age") +
+  theme_classic(base_size = 24) +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
 age_full %>%
-  select(c(beta_within_age, beta_chron_age, beta_long_cross, beta_short_cross)) %>%
+  select(c(beta_within_age, beta_chron_age, beta_long_cross, beta_mean_age)) %>%
   cor(use="pairwise.complete.obs") %>%
   ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=5, sig.level = 0.05, insig = "blank")
 
@@ -198,7 +235,7 @@ compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
     geom_smooth(method = "lm") +
     geom_vline(xintercept=0, linetype="dashed") +
     geom_hline(yintercept=0, linetype="dashed") +
-    scale_color_gradient2(low = c1, mid = "white", high = c2, midpoint = 0, name = "") +
+    scale_color_gradient2(low = c1, mid = "grey90", high = c2, midpoint = 0, name = "") +
     theme_classic(base_size=32) +
     theme(legend.key.height= unit(2, 'cm')) +
     xlab(lab1) +
@@ -302,20 +339,20 @@ age$chron_cross[age$beta_chron_age > 0 & age$beta_long_cross < 0]<- "chron-age p
 
 age %>%
   filter(within_cross == "within pos, cs neg" | within_cross == "within neg, cs pos") %>%
-  filter(fdr_chron_age < 0.05 & fdr_long_cross < 0.05) %>%
-  ggplot(aes(beta_long_cross, beta_chron_age, colour = within_cross)) +
+  filter(fdr_chron_age < 0.05 & fdr_within_age < 0.05) %>%
+  ggplot(aes(beta_chron_age, beta_within_age, colour = within_cross)) +
   geom_point() +
   geom_vline(xintercept = 0, linetype = 'dashed') +
   geom_hline(yintercept = 0, linetype = 'dashed') +
   scale_colour_manual(values = c("#00BFC4", "#C77CFF")) +
   theme_classic(base_size=24) +
-  xlab("Age Full Cross") +
-  ylab("Chronological Age")
+  xlab("Chronological Age") +
+  ylab("Within Age")
 
 age %>%
   filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05) %>%
-  ggplot(aes(beta_long_cross, beta_within_age, colour = chron_cross)) +
-  geom_point(aes(alpha = fdr_chron_age < 0.05)) +
+  ggplot(aes(beta_long_cross, beta_within_age, colour = within_cross)) +
+  geom_point(alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = 'dashed') +
   geom_hline(yintercept = 0, linetype = 'dashed') +
   #scale_colour_manual(values = c("#00BFC4", "#C77CFF")) +
