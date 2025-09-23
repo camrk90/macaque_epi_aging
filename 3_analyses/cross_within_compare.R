@@ -1,7 +1,6 @@
 library(tidyverse)
 library(ggplot2)
 library(ggcorrplot)
-library(variancePartition)
 library(ggvenn)
 
 #Define import function
@@ -146,8 +145,45 @@ age_full<- age_full %>%
 ###       Descriptive Stats        ###
 ######################################
 
+#Cross-age age distribution
+blood_metadata %>%
+  ggplot(aes(age_at_sampling, fill=individual_sex)) +
+  geom_histogram(position = "dodge", colour = "black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_fill_manual(values = c("steelblue1", "steelblue4"), name = "Sex") +
+  theme_classic(base_size=24) +
+  ylab("Count") +
+  xlab("Age")
+
+#Longitudinal data distribution
+long_data %>%
+  ggplot(aes(age_at_sampling, fill=individual_sex)) +
+  geom_histogram(position = "dodge", colour = "black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_fill_manual(values = c("purple", "purple4"), name = "Sex") +
+  theme_classic(base_size=24) +
+  ylab("Count") +
+  xlab("Age")
+
+long_data<- long_data %>%
+  group_by(monkey_id) %>%
+  mutate(min_age = min(age_at_sampling))
+long_data$age_at_sampling<- round(long_data$age_at_sampling, 0)
+
+long_data %>%
+  ggplot(aes(x=age_at_sampling, y=reorder(monkey_id, min_age), colour=individual_sex)) +
+  geom_path(linewidth = 1.2, alpha = 0.8) +
+  geom_point(colour="black") +
+  scale_x_continuous(breaks = seq(0, 30, by=5)) +
+  scale_colour_manual(values = c("purple", "purple4"), name = "Sex") +
+  ylab("Individual") +
+  xlab("Age") +
+  theme_classic(base_size = 24) +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
 age_full %>%
-  select(c(beta_within_age, beta_chron_age, beta_long_cross, beta_short_cross)) %>%
+  select(c(beta_within_age, beta_chron_age, beta_long_cross, beta_mean_age)) %>%
   cor(use="pairwise.complete.obs") %>%
   ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=5, sig.level = 0.05, insig = "blank")
 
@@ -158,7 +194,22 @@ regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered.rds")
 regions_m<- do.call(rbind, regions_m)
 regions_cov<- do.call(rbind, regions_cov)
 
-p_meth<- as.data.frame(t(regions_m/regions_cov))
+p_meth<- regions_m/regions_cov
+
+ratio_matrix<- as.matrix(p_meth)
+ratio_matrix[!is.finite(ratio_matrix)]<- 0
+ratio_matrix[is.na(ratio_matrix)]<- 0
+ratio_matrix[is.nan(ratio_matrix)]<- 0
+meta<- long_data[long_data$lid_pid %in% colnames(p_meth),]
+
+ratio_matrix<- ratio_matrix[,meta$lid_pid]
+
+#Variance Partition-------------------------------------------------------------
+vp_model<- ~ within.age + mean.age + (1|individual_sex) + perc_unique
+
+vp<- fitExtractVarPartModel(ratio_matrix, vp_model, meta)
+
+plotVarPart(vp)
 
 ######################################
 ###       Plot Distributions       ###
@@ -167,10 +218,10 @@ p_meth<- as.data.frame(t(regions_m/regions_cov))
 compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
   
   df<- df %>%
-    #filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
+    filter({{fdr1}} < .05 & {{fdr2}} < .05) %>%
     mutate(diff = abs({{var1}}) - abs({{var2}}))
   
-  eval(substitute(df_lm<- lm(var1 ~ var2, data=df)))
+  #eval(substitute(df_lm<- lm(var1 ~ var2, data=df)))
   
   #print(summary(df_lm))
     
@@ -178,12 +229,13 @@ compare_plot<- function(df, fdr1, fdr2, var1, var2, c1, c2, lab1, lab2) {
     ggplot(aes({{var1}}, {{var2}}, colour = diff)) +
     geom_point() +
     geom_abline() +
-    geom_abline(slope = df_lm[["coefficients"]][[2]], 
-                intercept = df_lm[["coefficients"]][[1]],
-                colour = "red") +
+    #geom_abline(slope = df_lm[["coefficients"]][[2]], 
+                #intercept = df_lm[["coefficients"]][[1]],
+                #colour = "red") +
+    geom_smooth(method = "lm") +
     geom_vline(xintercept=0, linetype="dashed") +
     geom_hline(yintercept=0, linetype="dashed") +
-    scale_color_gradient2(low = c1, mid = "white", high = c2, midpoint = 0, name = "") +
+    scale_color_gradient2(low = c1, mid = "grey90", high = c2, midpoint = 0, name = "") +
     theme_classic(base_size=32) +
     theme(legend.key.height= unit(2, 'cm')) +
     xlab(lab1) +
@@ -229,47 +281,89 @@ compare_plot(age_full, fdr_short_cross, fdr_mean_age,
              "Short Cross Age", "Mean Age")
 
 age.w.count<- nrow(age_full[age_full$fdr_within_age < 0.05,])
+age.mean.count<- nrow(age_full[age_full$fdr_mean_age < 0.05,])
 age.chron.count<- nrow(age_full[age_full$fdr_chron_age < 0.05,])
-age.short.count<- nrow(age_full[age_full$fdr_short_cross < 0.05,])
 age.long.count<- nrow(age_full[age_full$fdr_long_cross < 0.05,])
-counts<- data.frame(count = c(age.w.count, age.chron.count, age.short.count, age.long.count),
-                    predictor = as.factor(c('Age Within', 'Age Chron', 'Age Short', 'Age Full')))
+counts<- data.frame(count = c(age.w.count, age.mean.count, age.chron.count, age.long.count),
+                    predictor = as.factor(c('Within Age', 'Mean Age', 'Chron Age', 'Cross Age')))
 
 counts<- counts %>%
   mutate(predictor = as.factor(predictor)) %>%
   mutate(predictor=fct_reorder(predictor, count, .desc=T))
 counts$predictor
 
-rm(age.w.count);rm(age.m.count);rm(sex.count)
+rm(age.w.count);rm(age.mean.count);rm(age.chron.count);rm(age.long.count)
 
 counts %>%
   ggplot(aes(predictor, count, fill = predictor)) +
   geom_bar(stat = 'identity', colour="black") +
-  geom_text(label=counts$count, vjust=-1, size =5) +
+  geom_text(label=counts$count, vjust=-1, size=5) +
   theme_classic(base_size = 32) +
+  theme(axis.text.x = element_text(angle = 15, hjust=0.9)) +
   xlab("Predictor") +
   ylab("Count") +
-  scale_fill_manual(values = c("steelblue2", "purple", "darkgoldenrod2", "hotpink3"))
+  scale_fill_manual(values = c('steelblue2', "purple", 'darkgoldenrod2', 'chartreuse3'))
 
-## Significant regions Venn diagram
-age.w<- age_full$outcome[age_full$fdr_within_age < 0.05]
-age.chron<- age_full$outcome[age_full$fdr_chron_age < 0.05]
-age.cross<- age_full$outcome[age_full$fdr_short_cross < 0.05]
+#Distribution of effect sizes for each variable
+age_full %>%
+  dplyr::select(c(beta_within_age, beta_mean_age, beta_chron_age, beta_long_cross)) %>%
+  pivot_longer(cols = c(beta_within_age, beta_mean_age, beta_chron_age, beta_long_cross),
+               values_to = 'beta',
+               names_to = 'var') %>%
+  ggplot(aes(beta, fill=var)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  scale_fill_manual(values = c('darkgoldenrod2', 'steelblue2', 'chartreuse3', "purple"),
+                    labels = c("Chron Age", "Cross Age", "Mean Age", "Within Age")) +
+  theme_classic(base_size = 24) +
+  xlim(-0.25, 0.25)
 
-venn_list<- list(age.w, age.chron, age.cross)
+######################################
+###           CONCORDANCE          ###   
+######################################
 
-rm(age.w);rm(age.m);rm(sex)
+age<- age_full %>%
+  dplyr::select(c(outcome, beta_within_age, fdr_within_age,
+                  beta_mean_age, fdr_mean_age, beta_chron_age, fdr_chron_age,
+                  beta_long_cross, fdr_long_cross))
 
-ggvenn(venn_list,
-       fill_color = c("purple", "hotpink3", "darkgoldenrod2"),
-       text_size = 8,
-       show_percentage = F)
+age$within_cross<- "both positive"
+age$within_cross[age$beta_within_age < 0 & age$beta_long_cross < 0]<- "both negative"
+age$within_cross[age$beta_within_age < 0 & age$beta_long_cross > 0]<- "within neg, cs pos"
+age$within_cross[age$beta_within_age > 0 & age$beta_long_cross < 0]<- "within pos, cs neg"
 
-#Proportions
-agew<- pqlseq_anno %>% 
-  group_by(agew_signif) %>% 
-  summarise(count = n()) %>% 
-  mutate(perc = count/sum(count))
+age$chron_cross<- "both positive"
+age$chron_cross[age$beta_chron_age < 0 & age$beta_long_cross < 0]<- "both negative"
+age$chron_cross[age$beta_chron_age < 0 & age$beta_long_cross > 0]<- "chron-age neg, cross pos"
+age$chron_cross[age$beta_chron_age > 0 & age$beta_long_cross < 0]<- "chron-age pos, cross neg"
+
+age %>%
+  filter(within_cross == "within pos, cs neg" | within_cross == "within neg, cs pos") %>%
+  filter(fdr_chron_age < 0.05 & fdr_within_age < 0.05) %>%
+  ggplot(aes(beta_chron_age, beta_within_age, colour = within_cross)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  scale_colour_manual(values = c("#00BFC4", "#C77CFF")) +
+  theme_classic(base_size=24) +
+  xlab("Chronological Age") +
+  ylab("Within Age")
+
+age %>%
+  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05) %>%
+  ggplot(aes(beta_long_cross, beta_within_age, colour = within_cross)) +
+  geom_point(alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  #scale_colour_manual(values = c("#00BFC4", "#C77CFF")) +
+  theme_classic(base_size=24) +
+  xlab("Age Full Cross") +
+  ylab("Within Age")
+
+compare_plot(age, fdr_long_cross, fdr_chron_age,
+             beta_long_cross, beta_chron_age,
+             "#00BFC4", "#C77CFF",
+             "Full Cross Age", "Chronological Age")
 
 ######################################
 ###      JOIN INTERSECT FILES      ###   
@@ -366,61 +460,54 @@ pqlseq_anno<- pqlseq_anno %>%
 #Rearrange factors to sort by type then log_or
 pqlseq_anno$anno_class<- factor(pqlseq_anno$anno_class, levels = rev(annos))
 
-pqlseq_anno<- pqlseq_anno %>%
-  dplyr::relocate(c(anno_class, anno_source), .after=anno)
-
-pqlseq_anno$agew_signif<- "Non-Significant"
-pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age < 0]<- "Age-Hypomethylated"
-pqlseq_anno$agew_signif[pqlseq_anno$fdr_age < 0.05 & pqlseq_anno$beta_age > 0]<- "Age-Hypermethylated"
-
-pqlseq_anno$agew_signif<- factor(pqlseq_anno$agew_signif, 
-                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
-
-pqlseq_anno$agechron_signif<- "Non-Significant"
-pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age < 0]<- "Age-Hypomethylated"
-pqlseq_anno$agechron_signif[pqlseq_anno$fdr_chron_age < 0.05 & pqlseq_anno$beta_chron_age > 0]<- "Age-Hypermethylated"
-
-pqlseq_anno$agechron_signif<- factor(pqlseq_anno$agechron_signif, 
-                                     levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
-
-
 pqlseq_anno$unique_cpg<- paste(pqlseq_anno$chr, pqlseq_anno$cpg_loc, sep="_")
 
-
-
-test<- pqlseq_anno %>%
-  #filter(fdr_within_age < 0.05 & fdr_short_cross < 0.05) %>%
-  dplyr::select(c(anno_class, beta_within_age, beta_short_cross)) %>%
-  pivot_longer(cols = starts_with("beta"),
-               names_to = "age_var",
-               values_to = "beta")
-
-test %>%
-  ggplot(aes(beta, fill = age_var)) +
-  geom_density(alpha = 0.7) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("hotpink2", "purple")) +
-  theme_classic(base_size=24)
-
-test %>%
-  ggplot(aes(anno_class, beta, fill = age_var)) +
-  geom_violin(position = position_dodge(width = 0.5), width = 2) +
-  #geom_boxplot(, fill="white") + 
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("hotpink2", "purple")) +
-  theme_classic(base_size=24) +
-  theme(axis.text.x = element_text(angle = 45, hjust=1))
-
+pqlseq_anno<- pqlseq_anno %>%
+  dplyr::relocate(c(anno_class, anno_source, unique_cpg), .after=anno)
 
 ######################################
-###     Hypomethylated Regions     ###
+###    Cross-sectional Regions     ###
 ######################################
 
-hypo<- age_full %>%
-  filter(beta_within_age < 0) %>%
-  filter(fdr_within_age < 0.05 & fdr_long_cross < 0.05)
+cs_anno<- pqlseq_anno[, c(1:13, 32:37)]
 
+cs_anno$signif<- "Non-Significant"
+cs_anno$signif[cs_anno$fdr_long_cross < 0.05 & cs_anno$beta_long_cross < 0]<- "Age-Hypomethylated"
+cs_anno$signif[cs_anno$fdr_long_cross < 0.05 & cs_anno$beta_long_cross > 0]<- "Age-Hypermethylated"
 
+cs_anno$signif<- factor(cs_anno$signif, 
+                                 levels = c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+
+d1<- cs_anno %>% 
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(anno_class, signif) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+d2<- cs_anno %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
+  distinct(unique_cpg, .keep_all = T) %>%
+  group_by(signif) %>%
+  summarise(count = n()) %>%
+  mutate(perc = count/sum(count))
+
+d2$anno_class<- "All"
+
+d3<- rbind(d1, d2)
+annos2<- unique(d3$anno_class)
+d3$anno_class<- factor(d3$anno_class, levels = annos2)
+
+d3 %>%
+  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
+  geom_bar(stat="identity", width = 0.7, colour="black") +
+  #geom_text(label=df$count, hjust=-5) +
+  geom_vline(xintercept = 50, linetype = 'dashed') +
+  geom_vline(xintercept = 41.4, linetype = 'dashed') +
+  theme_classic(base_size=32) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("hotpink", "gray90", "hotpink3")) +
+  ylab("Annotation") +
+  xlab("Percentage")
 
 
 
