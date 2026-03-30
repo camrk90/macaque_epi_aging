@@ -1,5 +1,10 @@
 #!/usr/bin/env /packages/apps/spack/18/opt/spack/gcc-11.2.0/r-4.2.2-kpl/bin/Rscript
 
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=ckelsey4@asu.edu
+#SBATCH --mem=50G 
+#SBATCH --array=1-21
+
 SAMP <- Sys.getenv("SLURM_ARRAY_TASK_ID")
 SAMP <- as.integer(SAMP)
 
@@ -7,11 +12,39 @@ library(tidyverse)
 library(PQLseq2)
 setwd("/scratch/ckelsey4/Cayo_meth/glmer_model_compare")
 
+#Generate function--------------------------------------------------------------
+run_pqlseq<- function(pheno, covariates){
+  
+  mod_df<- pqlseq2(Y = meth, x = pheno, 
+                   K = kinship, W = covariates, 
+                   lib_size = cov, model="BMM")
+  
+  mod_df<- mod_df %>%
+    filter(converged == TRUE) %>%
+    mutate(fdr = p.adjust(pvalue, method = "fdr")) %>%
+    relocate(fdr, .after = pvalue) %>%
+    dplyr::select(-c(converged, elapsed_time))
+  
+  return(mod_df)
+  
+}
+
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
+
 long_data<- long_data %>%
-  arrange(lid_pid) %>%
-  filter(n > 1)
+  group_by(monkey_id) %>%
+  mutate(n = n()) %>%
+  ungroup()
+
+long_data<- long_data %>%
+  filter(age_at_sampling > 1) %>%
+  filter(n > 1) %>%
+  dplyr::rename(perc_unique = unique) %>%
+  drop_na() %>%
+  arrange(lid_pid)
+
+#Import kinship matrix----------------------------------------------------------
 kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
 
 #Load promoters-----------------------------------------------------------------
@@ -39,84 +72,48 @@ names(prom_m)<- 1:21 #turn all chroms into integers (X = 21)
 #Check metadata lids match the lids (cols) of a random chromosome
 if (all.equal(long_data$lid_pid, colnames(prom_cov[[runif(1, 1, 21)]]))) {
   
-  ###################################
-  #####        Prom PQLseq      #####
-  ###################################
-  #Model Vectors for genes pqlseq-------------------------------------------------
+  #Methylation matrices---------------------------------------------------------
   cov<- prom_cov[[SAMP]]
   meth<- prom_m[[SAMP]]
   
-  #Generate model matrix
-  predictor_matrix<- model.matrix(~ within.age + mean.age + individual_sex + university, data = long_data)
-  w.age_phenotype<- predictor_matrix[, 2]
-  w.age_covariates<- predictor_matrix[, 3:4]
-  
-  #Run PQLseq for within_age ---------------------------------------------------
-  prom_w_age<- pqlseq2(Y = meth, x = w.age_phenotype, 
-                           K = kinship, W = w.age_covariates, 
-                           lib_size = cov, model="BMM")
-  
-  #Run PQLseq for mean_age------------------------------------------------------
-  m.age_phenotype<- predictor_matrix[, 3]
-  m.age_covariates<- predictor_matrix[, c(2,4)]
-  
-  prom_m_age<- pqlseq2(Y = meth, x = m.age_phenotype, 
-                           K = kinship, W = m.age_covariates, 
-                           lib_size = cov, model="BMM")
-  
-  #Run PQLseq for sex-----------------------------------------------------------
-  sex_phenotype<- predictor_matrix[, 4]
-  sex_covariates<- predictor_matrix[, c(2:3)]
-  
-  prom_sex<- pqlseq2(Y = meth, x = sex_phenotype, 
-                              K = kinship, W = sex_covariates, 
-                              lib_size = cov, model="BMM")
-  
-  #Save pqlseq models
-  saveRDS(prom_w_age, paste("prom", "pqlseq2", "agew", SAMP, sep = "_"))
-  saveRDS(prom_m_age, paste("prom", "pqlseq2", "agem", SAMP, sep = "_"))
-  saveRDS(prom_sex, paste("prom", "pqlseq2", "sex", SAMP, sep = "_"))
-  
   ###################################
-  #####      Nested PQLseq      #####
+  #####        Run PQLseq       #####
   ###################################
-  #Run PQLseq for males:withinage ------------------------------------------------
+  #Age*sex interaction----------------------------------------------------------
   #Generate model matrix
-  predictor_matrix<- model.matrix(~ individual_sex:within.age + mean.age + individual_sex, data = long_data)
+  interaction_matrix<- model.matrix(~ age_at_sampling*mean.age + individual_sex + perc_unique, data = long_data)
   
-  #Generate predictor and covariate matrices
-  m_phenotype<- predictor_matrix[, 5]
-  m_covariates<- predictor_matrix[, c(2:4)]
+  vars <- c("age_at_sampling", "individual_sexM", "age_at_sampling:mean.age")
   
-  #Run pqlseq model
-  male_age_pqlseq2<- pqlseq2(Y = meth, x = m_phenotype, 
-                             K = kinship, W = m_covariates, 
-                             lib_size = cov, model="BMM", verbose=F)
+  interaction_model <- lapply(setNames(vars, vars), function(i) {
+    
+    interaction_phenotype <- interaction_matrix[, i]
+    interaction_covariates <- interaction_matrix[, setdiff(colnames(interaction_matrix), i)]
+    
+    run_pqlseq(interaction_phenotype, interaction_covariates)
+    
+  })
   
-  #Run PQLseq for females:withinage-----------------------------------------------
+  #Save pqlseq model
+  saveRDS(interaction_model, paste("dnam_prom_interaction_model", SAMP, sep = "_"))
+  
+  #Nested model-----------------------------------------------------------------
   #Generate model matrix
-  f_phenotype<- predictor_matrix[, 4]
-  f_covariates<- predictor_matrix[, c(2:3, 5)]
+  nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + mean.age + perc_unique, data = long_data)
   
-  #Run pqlseq model
-  female_age_pqlseq2<- pqlseq2(Y = meth, x = f_phenotype, 
-                               K = kinship, W = f_covariates, 
-                               lib_size = cov, model="BMM")
+  vars <- c("age_at_sampling:individual_sexF", "age_at_sampling:individual_sexM")
   
-  #Run PQLseq for mean_age-------------------------------------------------------------
-  #Generate model matrix
-  m.age_phenotype<- predictor_matrix[, 2]
-  m.age_covariates<- predictor_matrix[, c(3:5)]
+  nested_model <- lapply(setNames(vars, vars), function(i) {
+    
+    nested_phenotype <- nested_matrix[, i]
+    nested_covariates <- nested_matrix[, setdiff(colnames(nested_matrix), i)]
+    
+    run_pqlseq(nested_phenotype, nested_covariates)
+    
+  })
   
-  #Run pqlseq model
-  mean_age_pqlseq2<- pqlseq2(Y = meth, x = m.age_phenotype, 
-                             K = kinship, W = m.age_covariates, 
-                             lib_size = cov, model="BMM")
-  
-  #Save pqlseq models
-  saveRDS(male_age_pqlseq2, paste("prom", "nested", "m", SAMP, sep = "_"))
-  saveRDS(female_age_pqlseq2, paste("prom", "nested", "f",  SAMP, sep = "_"))
-  saveRDS(mean_age_pqlseq2, paste("prom", "nested", "mean", SAMP, sep = "_"))
+  #Save pqlseq model
+  saveRDS(nested_model, paste("dnam_prom_nested_model", SAMP, sep = "_"))
   
 } else {
   

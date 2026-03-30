@@ -12,8 +12,6 @@ library(ggrepel)
 library(ggVennDiagram)
 library(msigdbr)
 library(effectsize)
-library(clusterProfiler)
-library(org.Mmu.eg.db)
 options(scipen = 999)
 setwd('/scratch/ckelsey4/Cayo_meth')
 load("promoter_analysis.RData")
@@ -22,10 +20,19 @@ load("promoter_analysis.RData")
 ###      Import PQLseq Models      ###
 ######################################
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("/scratch/ckelsey4/Cayo_meth/long_data_adjusted")
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
+
 long_data<- long_data %>%
-  arrange(lid_pid) %>%
-  filter(n > 1)
+  group_by(monkey_id) %>%
+  mutate(n = n()) %>%
+  ungroup()
+
+long_data<- long_data %>%
+  filter(age_at_sampling > 1) %>%
+  filter(n > 1) %>%
+  dplyr::rename(perc_unique = unique) %>%
+  drop_na() %>%
+  arrange(lid_pid)
 
 #Load promoters-----------------------------------------------------------------
 prom_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_cov_filtered")
@@ -118,13 +125,23 @@ prom_agem_pqlseq<- import_prom_pqlseq(prom_agem_files)
 prom_sex_files<- 'prom_pqlseq2_sex_'
 prom_sex_pqlseq<- import_prom_pqlseq(prom_sex_files)
 
+#Chronological age
+prom_chron_files<- 'prom_pqlseq2_agechron'
+prom_chron_pqlseq<- import_prom_pqlseq(prom_chron_files)
+
 #Rename cols for each df to indicate age/sex
 colnames(prom_agew_pqlseq)<- c(names(prom_agew_pqlseq[,1:3]), paste(names(prom_agew_pqlseq[,4:11]), "agew", sep = "_"))
 colnames(prom_agem_pqlseq)<- c(names(prom_agem_pqlseq[,1:3]), paste(names(prom_agem_pqlseq[,4:11]), "agem", sep = "_"))
+prom_agem_pqlseq<- prom_agem_pqlseq[, c(1, 4:9)]
 colnames(prom_sex_pqlseq)<- c(names(prom_sex_pqlseq[,1:3]), paste(names(prom_sex_pqlseq[,4:11]), "sex", sep = "_"))
+prom_sex_pqlseq<- prom_sex_pqlseq[, c(1, 4:9)]
+colnames(prom_chron_pqlseq)<- c(names(prom_chron_pqlseq[,1:3]), paste(names(prom_chron_pqlseq[,4:11]), "chron", sep = "_"))
+prom_chron_pqlseq<- prom_chron_pqlseq[, c(1, 4:9)]
 
 #Cbind cols for age and sex dfs
-prom_pqlseq<- cbind(prom_agew_pqlseq, prom_sex_pqlseq[,4:11], prom_agem_pqlseq[,4:11])
+prom_pqlseq<- inner_join(prom_agew_pqlseq, prom_agem_pqlseq, by = 'outcome')
+prom_pqlseq<- inner_join(prom_pqlseq, prom_sex_pqlseq,  by = 'outcome')
+prom_pqlseq<- inner_join(prom_pqlseq, prom_chron_pqlseq,  by = 'outcome')
 
 #Sort chromosome factors
 sorted_labels<- str_sort(unique(prom_pqlseq$chrom), numeric=T)
@@ -135,6 +152,29 @@ rm(prom_agew_pqlseq);rm(prom_agem_pqlseq);rm(prom_sex_pqlseq)
 
 #Add gene names
 prom_pqlseq<- inner_join(mm_genes, prom_pqlseq)
+
+prom_pqlseq <- prom_pqlseq %>%
+  mutate(across(5:30, as.numeric))
+
+prom_pqlseq<- prom_pqlseq %>%
+  mutate(within_chron = abs(beta_chron) - abs(beta_agew))
+
+#Eq2 vs Eq1 Promoters-----------------------------------------------------------
+prom_pqlseq2<- prom_pqlseq %>%
+  filter(!gene_name == "") %>%
+  filter(!grepl("RNA", gene_name)) %>%
+  filter(!grepl("Metazoa", gene_name)) %>%
+  drop_na() %>%
+  arrange(within_chron)
+
+prom_ratio<- prom_m/prom_cov
+rownames(prom_ratio)<- str_split_i(rownames(prom_ratio), "\\.", 2)
+
+prom_ratio1<- prom_ratio[rownames(prom_ratio) == "ENSMMUG00000022221",]
+
+prom_ratio1<- as.data.frame(t(prom_ratio1))
+prom_ratio1<- cbind(prom_ratio1, long_data$age_at_sampling)
+plot(prom_ratio1$`long_data$age_at_sampling`, prom_ratio1$ENSMMUG00000022221)
 
 #Import nested promoter model output--------------------------------------------
 f_files<- 'prom_nested_f_'
@@ -272,7 +312,7 @@ paths<- hallmark.msigdb %>%
   dplyr::select(c(gs_name, gene_symbol))
 paths<- paths %>%
   dplyr::rename(gene_name = gene_symbol)
-test<- left_join(sig_proms, paths, by = "gene_name")
+test<- left_join(prom_pqlseq2, paths, by = "gene_name")
 test<- test %>%
   drop_na()
 
