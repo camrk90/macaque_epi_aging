@@ -32,25 +32,13 @@ run_pqlseq<- function(pheno, covariates){
 #Import metadata----------------------------------------------------------------
 long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
 
-long_data<- long_data %>%
-  group_by(monkey_id) %>%
-  mutate(n = n()) %>%
-  ungroup()
-
-long_data<- long_data %>%
-  filter(age_at_sampling > 1) %>%
-  filter(n > 1) %>%
-  dplyr::rename(perc_unique = unique) %>%
-  drop_na() %>%
-  arrange(lid_pid)
-
 #Import kinship matrix----------------------------------------------------------
 kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
 
 #Load promoters-----------------------------------------------------------------
-prom_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_cov_filtered")
+prom_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_cov_filtered2.rds")
 prom_cov<- prom_cov[c(1:21)]
-prom_m<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_m_filtered")
+prom_m<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_m_filtered2.rds")
 prom_m<- prom_m[c(1:21)]
 
 #Filter metadata to lids in regions list
@@ -79,11 +67,29 @@ if (all.equal(long_data$lid_pid, colnames(prom_cov[[runif(1, 1, 21)]]))) {
   ###################################
   #####        Run PQLseq       #####
   ###################################
+  #Eq.1-------------------------------------------------------------------------
+  #Generate model matrix
+  eq1_matrix<- model.matrix(~ age_at_sampling + individual_sex + university, data = long_data)
+  
+  vars <- c("age_at_sampling", "individual_sexM")
+  
+  eq1_model <- lapply(setNames(vars, vars), function(i) {
+    
+    eq1_phenotype <- eq1_matrix[, i]
+    eq1_covariates <- eq1_matrix[, setdiff(colnames(eq1_matrix), i)]
+    
+    run_pqlseq(eq1_phenotype, eq1_covariates)
+    
+  })
+  
+  #Save pqlseq model
+  saveRDS(eq1_model, paste("dnam_prom_eq1_model", SAMP, sep = "_"))
+  
   #Age*sex interaction----------------------------------------------------------
   #Generate model matrix
-  interaction_matrix<- model.matrix(~ age_at_sampling*mean.age + individual_sex + perc_unique, data = long_data)
+  interaction_matrix<- model.matrix(~ age_at_sampling*individual_sex + mean.age + university, data = long_data)
   
-  vars <- c("age_at_sampling", "individual_sexM", "age_at_sampling:mean.age")
+  vars <- c("age_at_sampling", "individual_sexM", "age_at_sampling:individual_sexM")
   
   interaction_model <- lapply(setNames(vars, vars), function(i) {
     
@@ -99,7 +105,7 @@ if (all.equal(long_data$lid_pid, colnames(prom_cov[[runif(1, 1, 21)]]))) {
   
   #Nested model-----------------------------------------------------------------
   #Generate model matrix
-  nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + mean.age + perc_unique, data = long_data)
+  nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + mean.age + university, data = long_data)
   
   vars <- c("age_at_sampling:individual_sexF", "age_at_sampling:individual_sexM")
   
@@ -120,9 +126,4 @@ if (all.equal(long_data$lid_pid, colnames(prom_cov[[runif(1, 1, 21)]]))) {
   print("long_data lids did not match cov matrix lids")
   
 }
-
-
-
-
-
 

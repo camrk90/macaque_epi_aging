@@ -9,8 +9,9 @@ library(ggVennDiagram)
 library(effectsize)
 library(fgsea)
 library(msigdbr)
+library(ggridges)
 options(scipen = 999)
-setwd('/scratch/ckelsey4/Cayo_meth')
+#setwd('/scratch/ckelsey4/Cayo_meth')
 load("nested_analysis.RData")
 
 ######################################
@@ -18,73 +19,99 @@ load("nested_analysis.RData")
 ######################################
 #Import nested pqlseq model-----------------------------------------------------
 #Define import function
-import_nested_models<- function(model_path, file_string){
-  
-  #model_path="/scratch/ckelsey4/Cayo_meth/glmer_model_compare"
-  #file_string = "nested_model_f"
-  print(model_path)
-  print(file_string)
+import_models<- function(model_path, file_string, mod_type){
   
   file_list<- list.files(path = model_path, pattern = file_string)
-  print(file_list)
   file_order<- str_split_i(file_list, "_", 4)
   
   #Import glm models as list
   model_list<- lapply(paste(model_path, file_list, sep = "/"), readRDS)
   
   #Rename list elements
-  names(model_list)<- file_list
+  names(model_list)<- file_order
   
-  #Bind model list of models to dataframe
-  nested_pqlseq<- do.call(rbind, model_list)
+  if (mod_type == "interaction") {
+    
+    df_nms<- c("age", "sexM", "age*sex")
+    
+  } else if (mod_type == "nested") {
+    
+    df_nms<- c("ageF", "ageM")
+    
+  }
   
-  #Split outcome col to remove repeated chr #'s
-  nested_pqlseq$outcome<- str_split_i(nested_pqlseq$outcome, "\\.", 3)
+  mod2<- lapply(model_list, function(mod){
+    
+    names(mod)<- df_nms
+    
+    mod<- lapply(names(mod), function(y){
+      
+      df<- mod[[y]]
+      
+      df<- df %>%
+        dplyr::select(-c(h2, sigma2))
+      
+      colnames(df)<- c("outcome", "n", paste(colnames(df[3:length(df)]), y, sep = "_"))
+      
+      df
+    })
+    
+    names(mod)<- df_nms
+    
+    mod
+    
+  })
   
-  #Generate sex col from rownames
-  nested_pqlseq$sex<- rownames(nested_pqlseq)
-  nested_pqlseq$sex<- str_split_i(nested_pqlseq$sex, "\\_", 3)
+  mod2 <- lapply(df_nms, function(nm) {
+    do.call(rbind, lapply(mod2, function(x) x[[nm]]))
+  })
   
-  #Separate region coordinates into start and end, delete the chr col, and move region col to front
-  nested_pqlseq$outcome2<- nested_pqlseq$outcome
-  nested_pqlseq<- nested_pqlseq %>%
-    separate_wider_delim(outcome2, "_", names = c("chr", "chromStart", "chromEnd")) %>%
-    relocate(c(sex, chr, chromStart, chromEnd), .before = n) %>%
-    mutate(region_range = paste(as.character(chromStart), "-", as.character(chromEnd)))
+  names(mod2)<- df_nms
   
-  #Filter for true convergences
-  nested_pqlseq<- nested_pqlseq %>%
-    filter(converged == "TRUE")
+  mod2<- lapply(mod2, function(df){
+    
+    df$outcome<- str_split_i(df$outcome, "\\.", 3)
+    
+    df$outcome2<- df$outcome
+    
+    df<- df %>%
+      separate_wider_delim(outcome2, "_", names = c("chr", "chromStart", "chromEnd")) %>%
+      mutate(region_range = paste(as.character(chromStart), "-", as.character(chromEnd))) %>%
+      relocate(c(chr, chromStart, chromEnd, region_range), .before = n)
+      
+  })
   
-  #Generate df of adjusted pvalues
-  nested_pqlseq_fdr<- p.adjust(nested_pqlseq$pvalue, method = "fdr")
-  
-  #Bind padj cols to model df and relocate
-  nested_pqlseq<- cbind(nested_pqlseq, nested_pqlseq_fdr)
-  nested_pqlseq<- nested_pqlseq %>%
-    dplyr::rename(fdr = nested_pqlseq_fdr) %>%
-    relocate(fdr, .after = pvalue) %>%
-    dplyr::select(-c(elapsed_time, converged))
-  rm(nested_pqlseq_fdr)
-  
-  return(nested_pqlseq)
+  return(mod2)
   
 }
 
 #Import female and male pqlseq output
-f_nested<- import_nested_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
-                                file_string = "nested_model_f")
+nested_list<- import_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
+                                file_string = "dnam_nested_model", mod_type = "nested")
 
-m_nested<- import_nested_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
-                                file_string = "nested_model_m_")
+nested_df<- left_join(nested_list[[1]], nested_list[[2]][,c(1,7:12)], by = "outcome")
 
-nested_pqlseq<- rbind(f_nested, m_nested)
-nested_pqlseq<- nested_pqlseq %>%
-  mutate(std_beta = beta/se_beta) %>%
-  relocate(std_beta, .before = beta)
+nested_df <- nested_df %>%
+  mutate(across(6:18, as.numeric))
 
-nested_pqlseq$type<- "autosomes"
-nested_pqlseq$type[nested_pqlseq$chr == "X"]<- "X"
+nested_df<- nested_df %>% 
+  mutate(diff = abs(beta_ageF) - abs(beta_ageM))
+
+nested_df$type<- "autosomes"
+nested_df$type[nested_df$chr == "X"]<- "X"
+
+#Import additive pqlseq model---------------------------------------------------
+additive_list<- import_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
+                                   file_string = "dnam_interaction_model", mod_type = "interaction")
+
+additive_df<- left_join(additive_list[[1]], additive_list[[2]][,c(1,7:12)], by = "outcome")
+additive_df<- left_join(additive_df, additive_list[[3]][,c(1,7:12)], by = "outcome")
+
+additive_df <- additive_df %>%
+  mutate(across(6:24, as.numeric))
+
+additive_df$type<- "autosomes"
+additive_df$type[additive_df$chr == "X"]<- "X"
 
 #Import genes-------------------------------------------------------------------
 mm_genes<- rtracklayer::import('/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf')
@@ -93,247 +120,173 @@ mm_genes<- mm_genes %>%
   filter(type == "gene")
 
 #Plot nested pqlseq model-------------------------------------------------------
-nested_pqlseq$direction<- "Hyper"
-nested_pqlseq$direction[nested_pqlseq$beta < 0]<- "Hypo"
-
-f.count_hyper<- nrow(f_nested[f_nested$beta > 0 & f_nested$fdr < 0.05,])
-f.count_hypo<- nrow(f_nested[f_nested$beta < 0 & f_nested$fdr < 0.05,])
-m.count_hyper<- nrow(m_nested[m_nested$beta > 0 & m_nested$fdr < 0.05,])
-m.count_hypo<- nrow(m_nested[m_nested$beta < 0 & m_nested$fdr < 0.05,])
-counts<- data.frame(count = c(f.count_hyper, m.count_hyper, f.count_hypo, m.count_hypo),
-                    predictor = as.factor(c('Female Hyper', 'Male Hyper', 'Female Hypo', 'Male Hypo')),
-                    sex = as.factor(c("Female", "Male", "Female", "Male")))
-
-rm(f.count_hyper);rm(f.count_hypo);rm(m.count_hyper);rm(m.count_hypo)
-
-nested_pqlseq %>%
-  filter(fdr < 0.05) %>%
-  ggplot(aes(x=direction, fill=sex)) +
-  geom_bar(alpha = 0.7, position = position_dodge(width = 0.7),  colour = "black") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -1, position = position_dodge(width = 0.7)) +
-  scale_fill_manual(values = c("royalblue1", "orangered1"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  xlab("Predictor") +
-  ylab("Count")
-
 #Plot significant estimates
-nested_pqlseq %>%
-  filter(fdr < 0.05) %>%
-  filter(chr == "X") %>%
+nested_df %>%
+  filter(chr != "X") %>%
+  dplyr::select(c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM)) %>%
+  pivot_longer(cols = c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM),
+               names_to = c(".value", "sex"),
+               names_sep = "_") %>%
+  filter(fdr < .05) %>%
   ggplot(aes(beta, fill=sex)) +
   geom_histogram(alpha = 0.7, colour="black", bins = 100, position = "identity") +
+  #geom_density(alpha = 0.5) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
   ylab("Count") +
   xlab("Estimate") +
   theme_classic(base_size=24)
-  #facet_wrap(vars(type), nrow = 2)
 
-#Plot significant hypomethylated estimates
-nested_pqlseq %>%
-  filter(beta < 0 & fdr < 0.05) %>%
-  ggplot(aes(beta, fill=sex)) +
-  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") + 
-  scale_fill_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
+nested_df %>% 
+  filter(fdr_ageF < .05 | fdr_ageM < .05) %>%
+  filter(chr != "X") %>%
+  ggplot(aes(beta_ageF, beta_ageM, colour = diff)) +
+  geom_point(alpha = 0.5) +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  geom_abline() +
+  scale_color_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
+  theme_classic(base_size = 6) +
+  theme(panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
+  stat_cor()
+
+nested_df %>% 
+  filter(chr != "X") %>%
+  ggplot(aes(diff, fill = after_stat(x))) +
+  geom_histogram(bins = 50) +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_vline(xintercept=median(nested_df$diff), linetype="dashed", colour = 'red') +
+  theme_classic(base_size = 6) +
+  scale_fill_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
+  theme(legend.key.width = unit(5, 'mm'), 
+        legend.key.height = unit(1, 'mm'),
+        legend.position = "top") +
+  theme(panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
+  scale_x_continuous(breaks = seq(-.10, 0.10, 0.05), limits = c(-0.10, 0.10))
+
+#Counts and Beta Distributions
+count_signif_regions<- function(x) {
+  
+  df<- x %>%
+    select(starts_with("fdr_"))
+  vars<- gsub("fdr_", "", colnames(df))
+    
+  counts <- colSums(df < 0.05, na.rm = TRUE)
+  
+  counts<- data.frame(predictor = vars,
+                      count = counts)
+  counts$predictor<- factor(counts$predictor, levels = vars)
+  counts<- counts %>%
+    mutate(perc_signif = count/nrow(df))
+  
+  counts_plot<- counts %>%
+    ggplot(aes(predictor, count, fill = predictor)) +
+    geom_bar(stat = 'identity') +
+    geom_text(label=counts$count, vjust=-0.25, size = 1.5) +
+    theme_classic(base_size = 12) +
+    theme(legend.position = "none",
+          panel.background = element_rect(colour = "black", linewidth=1),
+          axis.line = element_line(colour = "black", linewidth = 0.5),
+          axis.title.x = element_blank(),
+          plot.margin = margin(1, 1, 1, 1, "pt")) +
+    xlab("Predictor") +
+    ylab("Count")
+  
+  return(list(plot = counts_plot, df = counts))
+  
+}
+
+nested_counts<- count_signif_regions(nested_df)
+
+#Plot additive pqlseq model-----------------------------------------------------
+#Plot significant estimates
+additive_df %>%
+  filter(chr != "X") %>%
+  dplyr::select(c(beta_age, beta_sexM, `beta_age*sex`, fdr_age, fdr_sexM, `fdr_age*sex`)) %>%
+  pivot_longer(cols = c(beta_age, beta_sexM, `beta_age*sex`,  fdr_age, fdr_sexM, `fdr_age*sex`),
+               names_to = c(".value", "var"),
+               names_sep = "_") %>%
+  filter(fdr <.05) %>%
+  ggplot(aes(beta, fill=var)) +
+  geom_histogram(alpha = 0.7, bins = 100, position = "identity") +
+  #geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
   ylab("Count") +
   xlab("Estimate") +
-  theme_classic(base_size = 30)
+  theme_classic(base_size=24)
 
-#Plot significant hypermethylated estimates
-nested_pqlseq %>%
-  filter(beta > 0 & fdr < 0.05) %>%
-  ggplot(aes(beta, fill=sex)) +
-  geom_histogram(alpha = 0.5, colour="black", bins = 100, position = "identity") + 
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  ylab("Count") +
-  xlab("Estimate") +
-  theme_classic(base_size = 30)
+additive_df %>%
+  ggplot(aes(`beta_age*sex`)) +
+  geom_histogram(bins=50)
 
-#Boxplot of hypermethylated significant estimates
-nested_pqlseq %>%
-  filter(beta > 0 & fdr < 0.05) %>%
-  ggplot(aes(sex, beta)) +
-  #geom_jitter(aes(colour = sex), alpha = 0.7)+
-  geom_boxplot(aes(fill = sex), width=0.3) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  ylab("Beta (FDR < 0.05)") +
-  xlab("Sex") +
-  theme_classic(base_size = 30) +
-  theme(legend.position = "none")
+additive_df %>%
+  ggplot(aes(beta_age)) +
+  geom_histogram(bins=50)
 
-#Boxplot of hyp0methylated significant estimates
-nested_pqlseq %>%
-  filter(beta < 0 & fdr < 0.05) %>%
-  ggplot(aes(sex, beta)) +
-  #geom_jitter(aes(colour = sex), alpha = 0.7)+
-  geom_boxplot(aes(fill = sex), width=0.3) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
-  ylab("Beta (FDR < 0.05)") +
-  xlab("Sex") +
-  theme_classic(base_size = 30) +
-  theme(legend.position = "none")
+additive_df %>%
+  ggplot(aes(beta_sexM)) +
+  geom_histogram(bins=50)
 
-#Plot estimates by chromosome by sex
-df<- nested_pqlseq %>%
-  dplyr::select(c(chrom, beta, fdr, sex))
-df$type<- "autosomes"
-df$type[df$chrom == "X"]<- "X"
-
-df %>%
-  filter(fdr < 0.05) %>%
-  ggplot(aes(type, beta, colour=sex)) +
-  geom_jitter(alpha=0.5) +
-  geom_hline(yintercept = 0, linetype="dashed") +
-  scale_colour_manual(values = c("royalblue2", "orangered1"), name = "Sex") +
-  theme_classic(base_size = 32) +
-  ylab("Estimate (FDR < .05)") +
-  xlab("")
-
-#Generate and plot paired nested estimates--------------------------------------
-sex<- nested_pqlseq %>%
-  dplyr::select(c(outcome, region_range, chr, std_beta, beta, se_beta, fdr, sex, type)) %>%
-  pivot_wider(names_from = sex, values_from = c(std_beta, beta, fdr, se_beta), names_sep = "_")
-
-sex<- sex %>%
-  mutate(abs_diff = abs(beta_f) - abs(beta_m),
-         std_diff = abs(std_beta_f) - abs(std_beta_m))
-
-sex_hypo<- sex %>%
-  filter(beta_m < 0 & beta_f < 0)
-sex_hyper<- sex %>%
-  filter(beta_m > 0 & beta_f > 0)
-
-#Effect size distribution t-test
-hypo_t<- sex_hypo %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05)
-t.test(hypo_t$beta_m, hypo_t$beta_f, paired = T)
-cohens_d(hypo_t$beta_f, hypo_t$beta_m)
-mean(hypo_t$beta_m)
-mean(hypo_t$beta_f)
-
-hyper_t<- sex_hyper %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05)
-t.test(hyper_t$beta_m, hyper_t$beta_f, paired = T)
-cohens_d(hyper_t$beta_f, hyper_t$beta_m)
-mean(hyper_t$beta_m)
-mean(hyper_t$beta_f)
-
-#Distribution of difference in abs estimates for hypomethylated regions with x-chrom
-sex_hypo %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 50, colour = "black", position = 'identity') +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
-  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
-  xlab("|Estimate (F)| - |Estimate (M)|") +
-  ylab("Hypomethylated Regions") +
-  theme_classic(base_size = 36) +
-  theme(legend.position = "none")
-
-#Distribution of difference in abs estimates for hypomethylated regions without x-chrom
-sex_hypo %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(chr != "X") %>%
-  ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 100, colour = "black", position = 'identity') +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
-  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
-  xlab("|Estimate (F)| - |Estimate (M)|") +
-  ylab("Hypomethylated Regions No X") +
-  theme_classic(base_size = 30) +
-  theme(legend.position = "none")
-
-#Distribution of difference in abs estimates with X-chrom
-sex_hyper %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  #filter(abs_diff > -0.2 & abs_diff < 0.2) %>%
-  ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 50, colour = "black", position = 'identity') +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
-  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
-  xlab("|Estimate (F)| - |Estimate (M)|") +
-  ylab("Hypermethylated Regions") +
-  theme_classic(base_size = 36) +
-  theme(legend.position = "none")
-
-#Distribution of difference in abs estimates without X-chrom
-sex_hyper %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(chr != "X") %>%
-  ggplot(aes(abs_diff, fill = after_stat(x))) +
-  geom_histogram(bins = 100, colour = "black", position = 'identity') +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
-  scale_fill_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "Beta Difference") +
-  xlab("|Estimate (F)| - |Estimate (M)|") +
-  ylab("Hypermethylated Regions No X") +
-  theme_classic(base_size = 30) +
-  theme(legend.position = "none")
-
-#Scatterplot of male vs female estimates
-sex %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
-  geom_point() +
+additive_df %>% 
+  #filter(chr != "X") %>%
+  filter(fdr_age < .05 & fdr_sexM < .05) %>%
+  ggplot(aes(beta_age, beta_sexM)) +
+  geom_point(alpha = 0.5) +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
   geom_abline() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_color_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
-  geom_smooth(method = "lm") +
-  #ylim(-0.5, 0.5) +
-  #xlim(-0.5, 0.5) +
-  xlab("Estimate (Male)") +
-  ylab("Estimate (Female)") +
-  theme_classic(base_size=24) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  facet_wrap(vars(type))
+  #scale_color_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
+  theme_classic(base_size = 6) +
+  theme(panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
+  stat_cor()
 
-sex %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  ggplot(aes(beta_m, beta_f, colour = abs_diff)) +
-  geom_point() +
-  geom_abline() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_color_gradient2(low = "darkmagenta", mid = "white", high = "darkolivegreen", midpoint = 0, name = "") +
-  geom_smooth(method = "lm") +
-  #ylim(-0.5, 0.5) +
-  #xlim(-0.5, 0.5) +
-  xlab("Estimate (Male)") +
-  ylab("Estimate (Female)") +
-  theme_classic(base_size=24) +
-  theme(legend.key.height= unit(2, 'cm')) +
-  facet_wrap(vars(type))
-
-df3<- sex %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05)
-
-cor.test(df3$beta_f, df3$beta_m)
+#Counts and Beta Distributions
+additive_counts<- count_signif_regions(additive_df)
 
 ######################################
 ###        Add Annotations         ###
 ######################################
 #Import annotation files--------------------------------------------------------
-re_anno<- read_csv("re_annotations.csv")
-chmm_intersect<- read_csv("chmm_annotations.csv")
-promoters<- read_csv("promoters.csv")
+re_anno<- read_csv("/scratch/ckelsey4/Cayo_meth/re_annotations.csv")
+re_anno<- re_anno %>%
+  filter(chr != "Y")
 
-annotation_labels<- c("Active TSS", "Flanking Active TSS", "Transcr. at 5' & 3'", "Strong Transcription", "Weak Transcription", "Enhancers", "Genic Enhancers",
-                      "ZNF Genes & Repeats", "Heterochromatin", "Bivalent/Poised TSS", "Flanking Bivalent TSS/Enh", "Bivalent Enhancer", "Repressed Polycomb",
-                      "Weak Repressed Polycomb", "Quiescent/Low")
+re_labels<- c("Simple_repeat", "Satellite", "SINE", "LINE", "LTR", "Retroposon", "DNA")
+
+chmm_intersect<- read_csv("/scratch/ckelsey4/Cayo_meth/chmm_annotations.csv")
+chmm_intersect<- chmm_intersect %>%
+  filter(chr != "Y")
+
+chmm_labels<- c("Active TSS", "Flanking Active TSS", "Transcr. at 5' & 3'", "Strong Transcription", "Weak Transcription", "Enhancers", "Genic Enhancers",
+                "ZNF Genes & Repeats", "Heterochromatin", "Bivalent/Poised TSS", "Flanking Bivalent TSS/Enh", "Bivalent Enhancer", "Repressed Polycomb",
+                "Weak Repressed Polycomb", "Quiescent/Low")
+
+promoters<- read_csv("/scratch/ckelsey4/Cayo_meth/promoters.csv")
+promoters<- promoters %>%
+  filter(chr != "Y")
+
+
 #Promoters----------------------------------------------------------------------
-m_prom<- left_join(promoters, m_nested, by = c("region_range", "chr"))
-m_prom<- m_prom %>%
+nested_proms<- inner_join(nested_df, promoters, by = c("region_range", "chr"))
+nested_proms<- nested_proms %>%
   drop_na() %>%
   distinct(anno, .keep_all = T)
-m_prom$anno_class<- "Promoter"
-
-f_prom<- left_join(promoters, f_nested, by = c("region_range", "chr"))
-f_prom<- f_prom %>%
-  drop_na() %>%
-  distinct(anno, .keep_all = T)
-f_prom$anno_class<- "Promoter"
+nested_df$anno_class<- "Promoter"
 
 #Annotations--------------------------------------------------------------------
 #Define join function
@@ -346,21 +299,18 @@ anno_join<- function(output_df, annotation_df, annotation_type){
     
     #Filter out regions with models that didn't converge resulting in NAs in the annotation join
     model_df<- model_df %>%
-      drop_na()
+      drop_na() %>%
+      dplyr::select(-c(chromStart, chromEnd))
     
     #Set annotations as factor and reorder
     annotations_ordered<- str_sort(unique(model_df$anno), numeric = TRUE)
-    annotation_labels<- c("Active TSS", "Flanking Active TSS", "Transcr. at 5' & 3'", "Strong Transcription", "Weak Transcription", "Enhancers", "Genic Enhancers",
-                            "ZNF Genes & Repeats", "Heterochromatin", "Bivalent/Poised TSS", "Flanking Bivalent TSS/Enh", "Bivalent Enhancer", "Repressed Polycomb",
-                            "Weak Repressed Polycomb", "Quiescent/Low")
-    model_df$anno<- factor(model_df$anno, levels = annotations_ordered, labels = annotation_labels)
+    model_df$anno<- factor(model_df$anno, levels = annotations_ordered, labels = chmm_labels)
     
     #Create column of broad categories for annotations
-    model_df$anno_class<- "A"
-    model_df$anno_class[model_df$anno %in% annotation_labels[1:2]]<- "Transcription Start Sites"
-    model_df$anno_class[model_df$anno %in% annotation_labels[3:5]]<- "Active Transcription"
-    model_df$anno_class[model_df$anno %in% annotation_labels[6:8]]<- "Enhancer Regions"
-    model_df$anno_class[model_df$anno %in% annotation_labels[9:15]]<- "Quiescent States"
+    model_df$anno_class<- "Transcription Start Sites"
+    model_df$anno_class[model_df$anno %in% chmm_labels[3:5]]<- "Active Transcription"
+    model_df$anno_class[model_df$anno %in% chmm_labels[6:8]]<- "Enhancer Regions"
+    model_df$anno_class[model_df$anno %in% chmm_labels[9:15]]<- "Quiescent States"
     
     #Set classes as factors
     class_factors<- c("Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States")
@@ -378,7 +328,7 @@ anno_join<- function(output_df, annotation_df, annotation_type){
     
     #Select out unnecessary cols and rename
    model_df<-model_df %>%
-      dplyr::select(-c(range))
+      dplyr::select(-c(range, chromStart, chromEnd))
     
     #Remove non-sensical annotations (NA, Unknown etc)
    model_df<-model_df[!model_df$repClass == "Unknown",]
@@ -391,13 +341,13 @@ anno_join<- function(output_df, annotation_df, annotation_type){
    model_df$repClass<- as.factor(model_df$repClass)
    
    #Create column of broad categories for annotations
+   model_df<- model_df[!model_df$repClass %in% c("RC", "rRNA", "snRNA", "tRNA", "srpRNA", "scRNA", "Low_complexity"),]
    model_df$anno_class<- "Simple Repeats"
    model_df$anno_class[model_df$repClass %in% c("SINE", "LINE", "LTR", "Retroposon")]<- "Transposable Elements Class I"
    model_df$anno_class[model_df$repClass %in% "DNA"]<- "Transposable Elements Class II"
-   model_df$anno_class[model_df$repClass %in% c("rRNA", "snRNA", "tRNA", "srpRNA", "scRNA")]<- "Structural RNAs"
    
    #Set classes as factors
-   class_factors<- c("Simple Repeats", "Transposable Elements Class I", "Transposable Elements Class II", "Structural RNAs")
+   class_factors<- c("Simple Repeats", "Transposable Elements Class I", "Transposable Elements Class II")
    model_df$anno_class<- factor(model_df$anno_class, levels = class_factors)
    
    #Arrange cols to match chmm df
@@ -405,120 +355,123 @@ anno_join<- function(output_df, annotation_df, annotation_type){
      dplyr::select(-repName) %>%
      dplyr::rename(anno = repClass) %>%
      relocate(c(anno_start, anno_end), .before = anno)
+   model_df$anno<- factor(model_df$anno, levels = re_labels)
    
    return(model_df)
   }
 }
 
-m_chmm<- anno_join(m_nested, chmm_intersect, "chmm")
-m_re<- anno_join(m_nested, re_anno, "re")
-m_full<- rbind(m_chmm, m_re, m_prom)
+nested_chmm<- anno_join(nested_df, chmm_intersect, "chmm")
+nested_re<- anno_join(nested_df, re_anno, "re")
+nested_full<- rbind(nested_chmm, nested_re)
 
 annos<- c("Promoter", "Transcription Start Sites", "Active Transcription", "Enhancer Regions", "Quiescent States", "Simple Repeats",
           "Transposable Elements Class I", "Transposable Elements Class II", "Structural RNAs")
 
-m_full$anno_source<- "Repeat Elements"
-m_full$anno_source[m_full$anno_class == "Transcription Start Sites" | m_full$anno_class == "Active Transcription" |
-                          m_full$anno_class == "Enhancer Regions" | m_full$anno_class == "Quiescent States" | 
-                          m_full$anno_class == "Promoter"]<- "Transcription"
+nested_full$anno_source<- "Repeat Elements"
+nested_full$anno_source[nested_full$anno_class == "Transcription Start Sites" | nested_full$anno_class == "Active Transcription" |
+                          nested_full$anno_class == "Enhancer Regions" | nested_full$anno_class == "Quiescent States" | 
+                          nested_full$anno_class == "Promoter"]<- "Transcription"
 
-m_full<- m_full %>%
+nested_full<- nested_full %>%
   arrange(anno_source, anno_class)
 
 #Rearrange factors to sort by type then log_or
-m_full$anno_class<- factor(m_full$anno_class, levels = rev(annos))
+nested_full$anno_class<- factor(nested_full$anno_class, levels = rev(annos))
 
-m_full$signif<- "Non-Significant"
-m_full$signif[m_full$fdr < 0.05 & m_full$beta < 0]<- "Age-Hypomethylated"
-m_full$signif[m_full$fdr < 0.05 & m_full$beta > 0]<- "Age-Hypermethylated"
+nested_full$f_signif<- "Non-Significant"
+nested_full$f_signif[nested_full$fdr_ageF < 0.05 & nested_full$beta_ageF < 0]<- "Age-Hypomethylated"
+nested_full$f_signif[nested_full$fdr_ageF < 0.05 & nested_full$beta_ageF > 0]<- "Age-Hypermethylated"
 
-m_full$signif<- factor(m_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
+nested_full$f_signif<- factor(nested_full$f_signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
 
-m_full<- m_full %>%
-  mutate(unique_cpg = paste(chr, cpg_loc, sep="_"))
+nested_full$m_signif<- "Non-Significant"
+nested_full$m_signif[nested_full$fdr_ageM < 0.05 & nested_full$beta_ageM < 0]<- "Age-Hypomethylated"
+nested_full$m_signif[nested_full$fdr_ageM < 0.05 & nested_full$beta_ageM > 0]<- "Age-Hypermethylated"
 
-f_chmm<- anno_join(f_nested, chmm_intersect, "chmm")
-f_re<- anno_join(f_nested, re_anno, "re")
-f_full<- rbind(f_chmm, f_re, f_prom)
+nested_full$m_signif<- factor(nested_full$m_signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
 
-f_full$anno_source<- "Repeat Elements"
-f_full$anno_source[f_full$anno_class == "Transcription Start Sites" | f_full$anno_class == "Active Transcription" |
-                     f_full$anno_class == "Enhancer Regions" | f_full$anno_class == "Quiescent States" | 
-                     f_full$anno_class == "Promoter"]<- "Transcription"
-
-f_full<- f_full %>%
-  arrange(anno_source, anno_class)
-
-#Rearrange factors to sort by type then log_or
-f_full$anno_class<- factor(f_full$anno_class, levels = rev(annos))
-
-f_full$signif<- "Non-Significant"
-f_full$signif[f_full$fdr < 0.05 & f_full$beta < 0]<- "Age-Hypomethylated"
-f_full$signif[f_full$fdr < 0.05 & f_full$beta > 0]<- "Age-Hypermethylated"
-
-f_full$signif<- factor(f_full$signif, levels=c("Age-Hypermethylated", "Non-Significant", "Age-Hypomethylated"))
-
-f_full<- f_full %>%
-  mutate(unique_cpg = paste(chr, cpg_loc, sep="_"))
+nested_full<- nested_full %>%
+  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
+  relocate(unique_cpg, .after = outcome)
 
 #Plot basics--------------------------------------------------------------------
-m_proportions<- m_full %>% 
-  group_by(anno_class, signif) %>% 
-  summarise(count = n()) %>% 
-  mutate(perc = count/sum(count))
+nested_full %>%
+  dplyr::select(c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM, anno, anno_source)) %>%
+  pivot_longer(cols = c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM),
+               names_to = c(".value", "sex"),
+               names_sep = "_") %>%
+  filter(anno_source == "Repeat Elements") %>%
+  filter(fdr < .05) %>%
+  ggplot(aes(beta, anno, fill = sex)) +
+  geom_density_ridges(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red')
 
-d3<- m_full %>%
-  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
-  distinct(unique_cpg, .keep_all = T) %>%
-  group_by(signif) %>%
-  summarise(count = n()) %>%
-  mutate(perc = count/sum(count))
+nested_full %>%
+  dplyr::select(c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM, anno, anno_source)) %>%
+  pivot_longer(cols = c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM),
+               names_to = c(".value", "sex"),
+               names_sep = "_") %>%
+  filter(anno_source == "Transcription") %>%
+  filter(fdr < .05) %>%
+  ggplot(aes(beta, anno, fill = sex)) +
+  geom_density_ridges(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = 'red') +
+  theme_classic(base_size = 12) +
+  theme(panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5))
 
-d3$anno_class<- "All"
+generate_proportion<- function(df, x){
+  
+  d1<- df %>% 
+    distinct(unique_cpg, .keep_all = T) %>%
+    group_by(anno, {{x}}) %>% 
+    summarise(count = n()) %>% 
+    mutate(perc = count/sum(count))
+  
+  d2<- df %>%
+    distinct(unique_cpg, .keep_all = T) %>%
+    group_by({{x}}) %>%
+    summarise(count = n()) %>%
+    mutate(perc = count/sum(count))
+  
+  d2$anno<- "All"
+  
+  d3<- rbind(d1, d2)
+  annos2<- unique(d3$anno)
+  d3$anno<- factor(d3$anno, levels = annos2)
+  
+  d3 %>%
+    filter(is.na(anno)) %>%
+    dplyr::select(count)
+  
+  col1 <- eval(substitute(x), d2)
+  
+  d3$percent<- d3$perc*100
+  
+  pro_plot<- d3 %>%
+    arrange(anno) %>%
+    ggplot(aes(x = percent, y=anno, fill = factor({{x}}))) +
+    geom_bar(stat="identity", width = 0.7, colour="black") +
+    theme_classic(base_size=24) +
+    geom_vline(xintercept = (1-d2$perc[col1 == "Age-Hypermethylated"])*100, linetype = 'dashed') +
+    geom_vline(xintercept = d2$perc[col1 == "Age-Hypomethylated"]*100, linetype = 'dashed') +
+    theme(legend.position = "top") +
+    #scale_fill_manual(values = c(c1, c2, c3), name = "") +
+    ylab("Annotation") +
+    xlab("Percentage") 
+  
+  return(list(data = d3, plot = pro_plot))
+  
+}
 
-m_proportions<- rbind(m_proportions, d3)
-annos2<- unique(m_proportions$anno_class)
-m_proportions$anno_class<- factor(m_proportions$anno_class, levels = annos2)
+m_proportions<- generate_proportion(nested_full, m_signif)
 
-m_proportions %>%
-  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
-  geom_bar(stat="identity", width = 0.7, colour="black") +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_manual(values = c("magenta1", "gray90", "darkmagenta")) +
-  ylab("Annotation") +
-  xlab("Percentage")
-
-f_proportions<- f_full %>% 
-  group_by(anno_class, signif) %>% 
-  summarise(count = n()) %>% 
-  mutate(perc = count/sum(count))
-
-d3<- f_full %>%
-  mutate(unique_cpg = paste(chr, cpg_loc, sep="_")) %>%
-  distinct(unique_cpg, .keep_all = T) %>%
-  group_by(signif) %>%
-  summarise(count = n()) %>%
-  mutate(perc = count/sum(count))
-
-d3$anno_class<- "All"
-
-f_proportions<- rbind(f_proportions, d3)
-annos2<- unique(f_proportions$anno_class)
-f_proportions$anno_class<- factor(f_proportions$anno_class, levels = annos2)
-f_proportions$sex<- "F"
-
-f_proportions %>%
-  ggplot(aes(x = perc*100, y=anno_class, fill = factor(signif))) +
-  geom_bar(stat="identity", width = 0.7, colour="black") +
-  #geom_text(label=d2$count, hjust=-2) +
-  theme_classic(base_size=32) +
-  theme(legend.position = "none") +
-  scale_fill_manual(values = c("darkolivegreen1", "gray90", "darkolivegreen")) +
-  ylab("Annotation") +
-  xlab("Percentage")
-
-total_proportions<- 
+f_proportions<- generate_proportion(nested_full, f_signif)
 
 ######################################
 ###           ENRICHMENT           ###   

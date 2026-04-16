@@ -32,18 +32,6 @@ run_pqlseq<- function(pheno, covariates){
 #Import metadata----------------------------------------------------------------
 long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
 
-long_data<- long_data %>%
-  group_by(monkey_id) %>%
-  mutate(n = n()) %>%
-  ungroup()
-
-long_data<- long_data %>%
-  filter(age_at_sampling > 1) %>%
-  filter(n > 1) %>%
-  dplyr::rename(perc_unique = unique) %>%
-  drop_na() %>%
-  arrange(lid_pid)
-
 #Import kinship matrix----------------------------------------------------------
 kinship<- readRDS("/scratch/ckelsey4/Cayo_meth/full_kin_matrix")
 
@@ -52,8 +40,8 @@ kinship<- kinship[long_data$lid_pid, long_data$lid_pid]
 
 #Import m/cov rds------------------------------------------------------------
 # load region lists that have been filtered for 5x coverage in 90% of samples
-regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered.rds")
-regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered.rds")
+regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered2.rds")
+regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered2.rds")
 
 #Filter metadata to lids in regions list
 long_data<- long_data[long_data$lid_pid %in% colnames(regions_cov[[1]]),]
@@ -73,34 +61,34 @@ names(regions_m)<- 1:21 #turn all chroms into integers (X = 21)
 
 if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]])) == T) {
   
-  #Model Vectors for lme4---------------------------------------------------------
+  #Model Vectors for lme4-------------------------------------------------------
   cov<- regions_cov[[SAMP]]
   meth<- regions_m[[SAMP]]
   
   ###################################
   #####        Run PQLseq       #####
   ###################################
-  #Age*sex interaction----------------------------------------------------------
+  #Additive model---------------------------------------------------------------
   #Generate model matrix
-  interaction_matrix<- model.matrix(~ age_at_sampling*mean.age + individual_sex + perc_unique, data = long_data)
+  additive_matrix<- model.matrix(~ age_at_sampling + mean.age + individual_sex + university, data = long_data)
   
-  vars <- c("age_at_sampling", "individual_sexM", "age_at_sampling:mean.age")
+  vars <- c("age_at_sampling", "individual_sexM")
   
-  interaction_model <- lapply(setNames(vars, vars), function(i) {
+  additive_model <- lapply(setNames(vars, vars), function(i) {
     
-    interaction_phenotype <- interaction_matrix[, i]
-    interaction_covariates <- interaction_matrix[, setdiff(colnames(interaction_matrix), i)]
+    additive_phenotype <- additive_matrix[, i]
+    additive_covariates <- additive_matrix[, setdiff(colnames(additive_matrix), i)]
     
-    run_pqlseq(interaction_phenotype, interaction_covariates)
+    run_pqlseq(additive_phenotype, additive_covariates)
     
   })
   
   #Save pqlseq model
-  saveRDS(interaction_model, paste("dnam_interaction_model", SAMP, sep = "_"))
+  saveRDS(additive_model, paste("dnam_additive_model", SAMP, sep = "_"))
   
-  #Nested model-----------------------------------------------------------------
+  #Eq.2 Nested model-----------------------------------------------------------------
   #Generate model matrix
-  nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + mean.age + perc_unique, data = long_data)
+  nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + mean.age + university, data = long_data)
   
   vars <- c("age_at_sampling:individual_sexF", "age_at_sampling:individual_sexM")
   
@@ -115,6 +103,24 @@ if (all.equal(long_data$lid_pid, colnames(regions_cov[[runif(1, 1, 21)]])) == T)
   
   #Save pqlseq model
   saveRDS(nested_model, paste("dnam_nested_model", SAMP, sep = "_"))
+  
+  #Eq.1 Nested model------------------------------------------------------------
+  #Generate model matrix
+  eq1_nested_matrix<- model.matrix(~ age_at_sampling:individual_sex + university, data = long_data)
+  
+  vars <- c("age_at_sampling:individual_sexF", "age_at_sampling:individual_sexM")
+  
+  eq1_nested_model <- lapply(setNames(vars, vars), function(i) {
+    
+  eq1_nested_phenotype <- eq1_nested_matrix[, i]
+  eq1_nested_covariates <- eq1_nested_matrix[, setdiff(colnames(eq1_nested_matrix), i)]
+    
+    run_pqlseq(eq1_nested_phenotype, eq1_nested_covariates)
+    
+  })
+  
+  #Save pqlseq model
+  saveRDS(eq1_nested_model, paste("dnam_nestedEq1_model", SAMP, sep = "_"))
   
 } else {
   

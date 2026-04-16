@@ -22,17 +22,86 @@ load("promoter_analysis.RData")
 #Import metadata----------------------------------------------------------------
 long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
 
-long_data<- long_data %>%
-  group_by(monkey_id) %>%
-  mutate(n = n()) %>%
-  ungroup()
+######################################
+###      Import PQLseq Model       ###
+######################################
+#Import nested pqlseq model-----------------------------------------------------
+#Define import function
+import_models<- function(model_path, file_string, mod_type){
+  
+  file_list<- list.files(path = model_path, pattern = file_string)
+  file_order<- str_split_i(file_list, "_", 5)
+  
+  #Import glm models as list
+  model_list<- lapply(paste(model_path, file_list, sep = "/"), readRDS)
+  
+  #Rename list elements
+  names(model_list)<- file_order
+  
+  if (mod_type == "interaction") {
+    
+    df_nms<- c("age", "sexM", "age*sex")
+    
+  } else if (mod_type == "nested") {
+    
+    df_nms<- c("ageF", "ageM")
+    
+  }
+  
+  mod2<- lapply(model_list, function(mod){
+    
+    names(mod)<- df_nms
+    
+    mod<- lapply(names(mod), function(y){
+      
+      df<- mod[[y]]
+      
+      df<- df %>%
+        dplyr::select(-c(h2, sigma2))
+      
+      colnames(df)<- c("outcome", "n", paste(colnames(df[3:length(df)]), y, sep = "_"))
+      
+      df
+    })
+    
+    names(mod)<- df_nms
+    
+    mod
+    
+  })
+  
+  mod2 <- lapply(df_nms, function(nm) {
+    do.call(rbind, lapply(mod2, function(x) x[[nm]]))
+  })
+  
+  names(mod2)<- df_nms
+  
+  mod2<- lapply(mod2, function(df){
+    
+    df<- df %>%
+      separate_wider_delim(outcome, ".", names = c("chr", "ensembl_gene_name"))
+    
 
-long_data<- long_data %>%
-  filter(age_at_sampling > 1) %>%
-  filter(n > 1) %>%
-  dplyr::rename(perc_unique = unique) %>%
-  drop_na() %>%
-  arrange(lid_pid)
+  })
+  
+  return(mod2)
+  
+}
+
+#Import female and male pqlseq output
+nested_list<- import_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
+                            file_string = "dnam_prom_nested_model", mod_type = "nested")
+
+nested_df<- left_join(nested_list[[1]], nested_list[[2]][,c(2,4:9)], by = "ensembl_gene_name")
+
+nested_df <- nested_df %>%
+  mutate(across(3:ncol(nested_df), as.numeric))
+
+nested_df<- nested_df %>% 
+  mutate(diff = abs(beta_ageF) - abs(beta_ageM))
+
+nested_df$type<- "autosomes"
+nested_df$type[nested_df$chr == "X"]<- "X"
 
 #Load promoters-----------------------------------------------------------------
 prom_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/prom_cov_filtered")
@@ -64,152 +133,14 @@ mm_genes=as.data.frame(mm_genes)
 mm_genes<- mm_genes %>%
   filter(type == "gene") %>%
   dplyr::select(c(gene_id, gene_name)) %>%
-  dplyr::rename(outcome = gene_id) %>%
-  arrange(outcome)
+  dplyr::rename(ensembl_gene_name = gene_id) %>%
+  arrange(ensembl_gene_name)
 
-#Import promoter pqlseq files---------------------------------------------------
-setwd('/scratch/ckelsey4/Cayo_meth/glmer_model_compare')
-import_prom_pqlseq<- function(x){
-  
-  #Generate list of file names
-  file_list<- list.files(pattern = x)
-  file_order<- str_split_i(file_list, "_", 4)
-  
-  #Import glm models as list
-  model_list<- lapply(file_list, readRDS)
-  
-  #Rename list elements
-  names(model_list)<- file_order
-  
-  #Bind model list to df and add rownames
-  model<- do.call(rbind, model_list)
-  model$outcome2<- model$outcome
-  model$outcome<- str_split_i(model$outcome, "\\.", 2)
-  rownames(model)<- model$region
-  
-  #Separate region coordinates into start and end, delete the chr col, and move region col to front
-  #model$outcome2<- model$outcome
-  model<- model %>%
-    separate_wider_delim(outcome2, ".", names = c("chrom", "gene")) %>%
-    dplyr::select(-c(gene))
-  model<- model %>%
-    relocate(c(chrom), .before = n)
-  #model<- model %>%
-  #mutate(chromStart = as.numeric(chromStart))
-  
-  #Filter for true convergences
-  model<- model %>%
-    filter(converged == "TRUE")
-  
-  #Generate df of adjusted pvalues
-  model_fdr<- p.adjust(model$pvalue, method = "fdr")
-  
-  #Bind padj cols to model df and relocate
-  model<- cbind(model, model_fdr)
-  model<- model %>%
-    dplyr::rename(fdr = model_fdr) %>%
-    relocate(fdr, .after = pvalue) %>%
-    dplyr::select(-c(elapsed_time, converged))
-  
-}
-
-#Age Within
-prom_agew_files<- 'prom_pqlseq2_agew_'
-prom_agew_pqlseq<- import_prom_pqlseq(prom_agew_files)
-
-#Mean Age
-prom_agem_files<- 'prom_pqlseq2_agem_'
-prom_agem_pqlseq<- import_prom_pqlseq(prom_agem_files)
-
-#Sex
-prom_sex_files<- 'prom_pqlseq2_sex_'
-prom_sex_pqlseq<- import_prom_pqlseq(prom_sex_files)
-
-#Chronological age
-prom_chron_files<- 'prom_pqlseq2_agechron'
-prom_chron_pqlseq<- import_prom_pqlseq(prom_chron_files)
-
-#Rename cols for each df to indicate age/sex
-colnames(prom_agew_pqlseq)<- c(names(prom_agew_pqlseq[,1:3]), paste(names(prom_agew_pqlseq[,4:11]), "agew", sep = "_"))
-colnames(prom_agem_pqlseq)<- c(names(prom_agem_pqlseq[,1:3]), paste(names(prom_agem_pqlseq[,4:11]), "agem", sep = "_"))
-prom_agem_pqlseq<- prom_agem_pqlseq[, c(1, 4:9)]
-colnames(prom_sex_pqlseq)<- c(names(prom_sex_pqlseq[,1:3]), paste(names(prom_sex_pqlseq[,4:11]), "sex", sep = "_"))
-prom_sex_pqlseq<- prom_sex_pqlseq[, c(1, 4:9)]
-colnames(prom_chron_pqlseq)<- c(names(prom_chron_pqlseq[,1:3]), paste(names(prom_chron_pqlseq[,4:11]), "chron", sep = "_"))
-prom_chron_pqlseq<- prom_chron_pqlseq[, c(1, 4:9)]
-
-#Cbind cols for age and sex dfs
-prom_pqlseq<- inner_join(prom_agew_pqlseq, prom_agem_pqlseq, by = 'outcome')
-prom_pqlseq<- inner_join(prom_pqlseq, prom_sex_pqlseq,  by = 'outcome')
-prom_pqlseq<- inner_join(prom_pqlseq, prom_chron_pqlseq,  by = 'outcome')
-
-#Sort chromosome factors
-sorted_labels<- str_sort(unique(prom_pqlseq$chrom), numeric=T)
-prom_pqlseq<- prom_pqlseq %>%
-  mutate(chrom = factor(chrom, levels = sorted_labels))
-
-rm(prom_agew_pqlseq);rm(prom_agem_pqlseq);rm(prom_sex_pqlseq)
-
-#Add gene names
-prom_pqlseq<- inner_join(mm_genes, prom_pqlseq)
-
-prom_pqlseq <- prom_pqlseq %>%
-  mutate(across(5:30, as.numeric))
-
-prom_pqlseq<- prom_pqlseq %>%
-  mutate(within_chron = abs(beta_chron) - abs(beta_agew))
-
-#Eq2 vs Eq1 Promoters-----------------------------------------------------------
-prom_pqlseq2<- prom_pqlseq %>%
-  filter(!gene_name == "") %>%
-  filter(!grepl("RNA", gene_name)) %>%
-  filter(!grepl("Metazoa", gene_name)) %>%
-  drop_na() %>%
-  arrange(within_chron)
-
-prom_ratio<- prom_m/prom_cov
-rownames(prom_ratio)<- str_split_i(rownames(prom_ratio), "\\.", 2)
-
-prom_ratio1<- prom_ratio[rownames(prom_ratio) == "ENSMMUG00000022221",]
-
-prom_ratio1<- as.data.frame(t(prom_ratio1))
-prom_ratio1<- cbind(prom_ratio1, long_data$age_at_sampling)
-plot(prom_ratio1$`long_data$age_at_sampling`, prom_ratio1$ENSMMUG00000022221)
-
-#Import nested promoter model output--------------------------------------------
-f_files<- 'prom_nested_f_'
-f_nested<- import_prom_pqlseq(f_files)
-f_nested$sex<- "f"
-
-m_files<- 'prom_nested_m_'
-m_nested<- import_prom_pqlseq(m_files)
-m_nested$sex<- "m"
-
-prom_nested<- rbind(f_nested, m_nested)
-prom_nested<- inner_join(mm_genes, prom_nested)
-
-f_nested<- f_nested %>%
-  mutate(std_beta = beta/se_beta) %>%
-  dplyr::select(c(outcome, chrom, intercept, se_intercept, beta, se_beta, std_beta, pvalue, fdr))
-
-colnames(f_nested)<- c(colnames(f_nested[, 1:2]), paste(colnames(f_nested[, 3:9]), "f", sep = "_"))
-
-m_nested<- m_nested %>%
-  mutate(std_beta = beta/se_beta) %>%
-  dplyr::select(c(intercept, se_intercept, beta, se_beta, std_beta, pvalue, fdr))
-  
-colnames(m_nested)<- paste(colnames(m_nested), "m", sep = "_")
-
-
-prom_paired<- cbind(f_nested, m_nested)
-
-prom_paired<- prom_paired %>%
-  mutate(abs_diff = abs(beta_f) - abs(beta_m),
-         std_diff = abs(std_beta_f) - abs(std_beta_m))
-
-prom_paired<- inner_join(mm_genes, prom_paired)
-prom_paired<- prom_paired %>%
-  arrange(chrom)
+nested_df<- left_join(nested_df, mm_genes, by = "ensembl_gene_name")
+nested_df<- nested_df %>%
+  relocate(gene_name, .after = ensembl_gene_name)
+no_x<- nested_df %>%
+  filter(chr != "X")
 
 #Plot top 10 and bottom 10 different hypo/hypermethylated proms
 prom_paired %>%
@@ -258,48 +189,61 @@ sig_proms %>%
 cor.test(sig_proms$beta_f, sig_proms$beta_m)
 
 #Plot promoter estimates--------------------------------------------------------
-prom_pqlseq %>%
-  filter(! chrom == "X") %>%
-  #filter(gene_name %in% hallmark.msigdb$gene_symbol) %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(!outcome == "ENSMMUG00000006211") %>%
-  filter(!is.na(gene_name) & !gene_name == "Metazoa_SRP") %>%
-  ggplot(aes(beta_m, beta_f)) +
-  geom_point(aes(colour=fdr_f<0.05),alpha=0.5, size=2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_smooth(method = "lm") +
-  geom_abline() +
-  #geom_text(aes(label=ifelse(beta_f>0.15 | beta_f< -0.15 | beta_m>0.15 | beta_m< -0.15, as.character(gene_name),'')), hjust=-0.1) +
-  #geom_label_repel() +
-  theme_classic()
-
-x_prom %>%
-  filter(fdr_f < 0.05 | fdr_m < 0.05) %>%
-  filter(!gene_name == "Metazoa_SRP") %>%
-  ggplot(aes(beta_m, beta_f, colour=fdr_f<0.05, shape = fdr_f<0.05 & fdr_m<0.05, label=gene_name)) +
-  geom_point(size=2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  #geom_smooth(method = "lm") +
-  geom_text_repel() +
-  theme_classic()
-
-prom_pqlseq %>%
-  ggplot(aes(beta_agew, fill=beta_agew>0)) +
-  geom_histogram(bins=50, colour="black", position="identity") +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
-  scale_fill_manual(values = c("hotpink4", "hotpink")) +
-  theme_classic(base_size=24)
-
-
-prom_nested %>% 
+nested_df %>%
+  filter(chr != "X") %>%
+  dplyr::select(c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM)) %>%
+  pivot_longer(cols = c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM),
+               names_to = c(".value", "sex"),
+               names_sep = "_") %>%
+  filter(fdr < .20) %>%
   ggplot(aes(beta, fill=sex)) +
-  #geom_histogram(bins=50, colour="black", alpha = 0.5, position = "identity") +
-  geom_density(alpha = 0.7) +
+  geom_histogram(alpha = 0.7, colour="black", bins = 100, position = "identity") +
+  #geom_density(alpha = 0.5) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
-  scale_fill_manual(values=c("darkolivegreen", "darkmagenta")) +
+  scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  ylab("Count") +
+  xlab("Estimate") +
   theme_classic(base_size=24)
+
+nested_df %>% 
+  filter(fdr_ageF < .20 | fdr_ageM < .20) %>%
+  filter(chr != "X") %>%
+  ggplot(aes(beta_ageF, beta_ageM, colour = diff)) +
+  geom_point(alpha = 0.5) +
+  geom_vline(xintercept=0, linetype="dashed") +
+  geom_hline(yintercept=0, linetype="dashed") +
+  geom_abline() +
+  scale_color_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
+  theme_classic(base_size = 6) +
+  theme(panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
+  stat_cor()
+
+#Counts and Beta Distributions
+f.count<- nrow(nested_df[nested_df$fdr_ageF < 0.05,])
+m.count<- nrow(nested_df[nested_df$fdr_ageM < 0.05,])
+counts<- data.frame(predictor = c('F', 'M'),
+                    count = c(f.count, m.count))
+counts$predictor<- factor(counts$predictor, levels = c('F', 'M'))
+counts<- counts %>%
+  mutate(perc_signif = count/nrow(nested_df))
+
+counts %>%
+  ggplot(aes(predictor, count, fill = predictor)) +
+  geom_bar(stat = 'identity') +
+  geom_text(label=counts$count, vjust=-0.25, size = 1.5) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "none",
+        panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        axis.title.x = element_blank(),
+        plot.margin = margin(1, 1, 1, 1, "pt")) +
+  xlab("Predictor") +
+  ylab("Count")
 
 ################################################################################
 #Categorical enrichment

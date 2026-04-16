@@ -22,16 +22,12 @@ load("wb_age_analysis.RData")
 ####        IMPORT FILES           ###
 ######################################
 #Import metadata----------------------------------------------------------------
-long_data<- readRDS("long_data_adjusted")
-long_data<- long_data %>%
-  dplyr::rename(sex = individual_sex) %>%
-  filter(n > 1)
+long_data<- read.table("/scratch/ckelsey4/Cayo_meth/long_data_adjusted.txt")
 
-#Generate %methylation matrix
-regions_cov<- readRDS("regions_cov_filtered")
-regions_cov<- regions_cov[1:21]
-regions_m<- readRDS("regions_m_filtered")
-regions_m<- regions_m[1:21]
+#Import m/cov rds------------------------------------------------------------
+# load region lists that have been filtered for 5x coverage in 90% of samples
+regions_cov<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_cov_filtered2.rds")
+regions_m<- readRDS("/scratch/ckelsey4/Cayo_meth/regions_m_filtered2.rds")
 
 #Filter metadata to lids in regions list
 long_data<- long_data[long_data$lid_pid %in% colnames(regions_cov[[1]]),]
@@ -46,6 +42,13 @@ regions_m<- lapply(names(regions_m), function(x){
   return(regions_m)
 })
 
+names(regions_cov)<- 1:21 #turn all chroms into integers (X = 21)
+names(regions_m)<- 1:21 #turn all chroms into integers (X = 21)
+
+regions_m<- do.call(rbind, regions_m)
+regions_cov<- do.call(rbind, regions_cov)
+
+ratio<- regions_m/regions_cov
 
 ######################################
 ###  Plot metadata distributions   ###
@@ -133,29 +136,12 @@ all.equal(pcs$lid_pid, long_data$lid_pid)
 #Check which pca's explain the most variance
 summary(pca_wb)$importance[2, ]
 
-pcs<- cbind(pcs[1:10], dplyr::select(long_data, c("age_at_sampling", "within.age", "mean.age", "sex", "pid")))
+pcs<- left_join(long_data, pcs[1:3], by = "lid_pid")
 
-pcs %>% 
-  ggplot(aes(PC1, within.age)) + 
-  geom_point() +
-  theme_classic(base_size=24)
-
-pc_lm<- lm(PC1 ~ within.age + mean.age + sex + pid, data = pcs)
-predicted_pcs<- predict.lm(pc_lm)
-summary(pc_lm)
-
-pcs<- cbind(pcs, predicted_pcs)
-
-pcs %>%
-  ggplot(aes(within.age, PC1)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  theme_classic(base_size = 24)
-
-pc.matrix<- model.matrix(~ PC1 + PC2 + PC3 + age_at_sampling + within.age + sex + mean.age, data = pcs)
+pc.matrix<- model.matrix(~ PC1 + PC2 + age_at_sampling + within.age + individual_sex + mean.age + pid + perc_unique + unique + university, data = pcs)
 pc.matrix %>% 
   cor(use="pairwise.complete.obs") %>%
-  ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=5, sig.level = 0.05, insig = "blank")
+  ggcorrplot(show.diag=FALSE, type="lower", lab=TRUE, lab_size=4, sig.level = 0.05, insig = "blank")
 
 ######################################
 ###      Import GLMER Models       ###
