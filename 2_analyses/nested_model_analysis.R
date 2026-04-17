@@ -11,12 +11,15 @@ library(fgsea)
 library(msigdbr)
 library(ggridges)
 options(scipen = 999)
-#setwd('/scratch/ckelsey4/Cayo_meth')
-load("nested_analysis.RData")
+#load("nested_analysis.RData")
+#remote_path<- "/scratch/ckelsey4/Cayo_meth/glmer_model_compare"
+local_path<- "/Users/cameronkelsey/Documents/smack_lab/cayo_data/"
 
 ######################################
-###      Import PQLseq Model       ###
-######################################
+#Import Metadata----------------------------------------------------------------
+long_data<- read.table(paste(local_path, "long_data.txt", sep = ''), sep = ".", 
+                       header = T)
+
 #Import nested pqlseq model-----------------------------------------------------
 #Define import function
 import_models<- function(model_path, file_string, mod_type){
@@ -30,9 +33,9 @@ import_models<- function(model_path, file_string, mod_type){
   #Rename list elements
   names(model_list)<- file_order
   
-  if (mod_type == "interaction") {
+  if (mod_type == "additive") {
     
-    df_nms<- c("age", "sexM", "age*sex")
+    df_nms<- c("age", "sexM")
     
   } else if (mod_type == "nested") {
     
@@ -86,7 +89,7 @@ import_models<- function(model_path, file_string, mod_type){
 }
 
 #Import female and male pqlseq output
-nested_list<- import_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
+nested_list<- import_models(model_path = paste(local_path, "dnam_sex_models", sep = ""),
                                 file_string = "dnam_nested_model", mod_type = "nested")
 
 nested_df<- left_join(nested_list[[1]], nested_list[[2]][,c(1,7:12)], by = "outcome")
@@ -101,27 +104,26 @@ nested_df$type<- "autosomes"
 nested_df$type[nested_df$chr == "X"]<- "X"
 
 #Import additive pqlseq model---------------------------------------------------
-additive_list<- import_models(model_path = "/scratch/ckelsey4/Cayo_meth/glmer_model_compare",
-                                   file_string = "dnam_interaction_model", mod_type = "interaction")
+additive_list<- import_models(model_path = paste(local_path, "dnam_sex_models", sep = ""),
+                                   file_string = "dnam_additive_model", mod_type = "additive")
 
 additive_df<- left_join(additive_list[[1]], additive_list[[2]][,c(1,7:12)], by = "outcome")
-additive_df<- left_join(additive_df, additive_list[[3]][,c(1,7:12)], by = "outcome")
 
 additive_df <- additive_df %>%
-  mutate(across(6:24, as.numeric))
+  mutate(across(6:18, as.numeric))
 
 additive_df$type<- "autosomes"
 additive_df$type[additive_df$chr == "X"]<- "X"
 
 #Import genes-------------------------------------------------------------------
-mm_genes<- rtracklayer::import('/scratch/ckelsey4/Cayo_meth/Macaca_mulatta.Mmul_10.110.chr.gtf')
+mm_genes<- rtracklayer::import(paste(local_path, 'Macaca_mulatta.Mmul_10.110.chr.gtf', sep = ""))
 mm_genes=as.data.frame(mm_genes)
 mm_genes<- mm_genes %>%
   filter(type == "gene")
 
 #Plot nested pqlseq model-------------------------------------------------------
 #Plot significant estimates
-nested_df %>%
+nested_hist_dnam<- nested_df %>%
   filter(chr != "X") %>%
   dplyr::select(c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM)) %>%
   pivot_longer(cols = c(beta_ageF, beta_ageM, fdr_ageF, fdr_ageM),
@@ -130,12 +132,21 @@ nested_df %>%
   filter(fdr < .05) %>%
   ggplot(aes(beta, fill=sex)) +
   geom_histogram(alpha = 0.7, colour="black", bins = 100, position = "identity") +
-  #geom_density(alpha = 0.5) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
   scale_fill_manual(values = c("darkolivegreen", "darkmagenta"), name = "Sex") +
+  theme_classic(base_size=18) +
+  theme(legend.position = "none",
+        panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1,
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
   ylab("Count") +
-  xlab("Estimate") +
-  theme_classic(base_size=24)
+  xlab(expression(beta))
+ggsave("nested_hist_dnam.svg", 
+       nested_hist_dnam, 
+       height = 90, width = 90, units = "mm")
 
 nested_df %>% 
   filter(fdr_ageF < .05 | fdr_ageM < .05) %>%
@@ -146,14 +157,20 @@ nested_df %>%
   geom_hline(yintercept=0, linetype="dashed") +
   geom_abline() +
   scale_color_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
-  theme_classic(base_size = 6) +
-  theme(panel.background = element_rect(colour = "black", linewidth=1),
+  theme_classic(base_size = 18) +
+  theme(legend.position = "none",
+        panel.background = element_rect(colour = "black", linewidth=1),
         axis.line = element_line(colour = "black", linewidth = 0.5),
         plot.margin = margin(1, 1, 1, 1, "pt"),
         aspect.ratio = 1,
         panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
         panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
-  stat_cor()
+  stat_cor() +
+  ylab(expression(beta["ageF"])) +
+  xlab(expression(beta["ageM"]))
+ggsave("nested_scatter_dnam.svg", 
+       last_plot(), 
+       height = 90, width = 90, units = "mm")
 
 nested_df %>% 
   filter(chr != "X") %>%
@@ -161,18 +178,61 @@ nested_df %>%
   geom_histogram(bins = 50) +
   geom_vline(xintercept=0, linetype="dashed") +
   geom_vline(xintercept=median(nested_df$diff), linetype="dashed", colour = 'red') +
-  theme_classic(base_size = 6) +
+  theme_classic(base_size = 18) +
   scale_fill_gradient2(low = "darkolivegreen", mid = "grey70", high = "darkmagenta", midpoint = 0, name = "") +
-  theme(legend.key.width = unit(5, 'mm'), 
-        legend.key.height = unit(1, 'mm'),
-        legend.position = "top") +
+  theme(legend.position = "none") +
   theme(panel.background = element_rect(colour = "black", linewidth=1),
         axis.line = element_line(colour = "black", linewidth = 0.5),
         plot.margin = margin(1, 1, 1, 1, "pt"),
         aspect.ratio = 1,
         panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
         panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
-  scale_x_continuous(breaks = seq(-.10, 0.10, 0.05), limits = c(-0.10, 0.10))
+  scale_x_continuous(breaks = seq(-.10, 0.10, 0.05), limits = c(-0.10, 0.10)) +
+  ylab("Count") +
+  xlab(expression(abs(beta["ageF"]) - abs(beta["ageM"])))
+ggsave("nested_diff_dnam.svg", 
+       last_plot(), 
+       height = 90, width = 90, units = "mm")
+
+nested_df %>%
+  #filter(chr != "X") %>%
+  ggplot(aes(beta_ageF, -log10(fdr_ageF), colour = -log10(fdr_ageF) < -log10(0.05))) +
+  geom_point(alpha = 0.5, size = 0.05) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  scale_colour_manual(values = c('darkolivegreen', 'darkolivegreen3')) +
+  theme_classic(base_size = 18) +
+  theme(legend.position = "none",
+        panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1) +
+  xlab(expression(beta["ageF"])) +
+  ylab("-log10(P-value)") +
+  scale_y_continuous(breaks = seq(0,25,5), limits = c(0,25)) +
+  scale_x_continuous(breaks = seq(-0.4, 0.4, 0.2), limits = c(-0.4, 0.4))
+
+nested_df %>%
+  filter(chr != "X") %>%
+  ggplot(aes(beta_ageM, -log10(fdr_ageM), colour = -log10(fdr_ageM) < -log10(0.05))) +
+  geom_point(alpha = 0.5, size = 0.05) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  scale_colour_manual(values = c('darkmagenta', 'purple1')) +
+  theme_classic(base_size = 18) +
+  theme(legend.position = "none",
+        panel.background = element_rect(colour = "black", linewidth=1),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
+        panel.grid.minor = element_line(color = "grey98", linewidth = 0.5),
+        plot.margin = margin(1, 1, 1, 1, "pt"),
+        aspect.ratio = 1) +
+  xlab(expression(beta["ageM"])) +
+  ylab("-log10(P-value)") +
+  scale_y_continuous(breaks = seq(0,25,5), limits = c(0,25)) +
+  scale_x_continuous(breaks = seq(-0.4, 0.4, 0.2), limits = c(-0.4, 0.4))
 
 #Counts and Beta Distributions
 count_signif_regions<- function(x) {
@@ -212,29 +272,25 @@ nested_counts<- count_signif_regions(nested_df)
 #Plot significant estimates
 additive_df %>%
   filter(chr != "X") %>%
-  dplyr::select(c(beta_age, beta_sexM, `beta_age*sex`, fdr_age, fdr_sexM, `fdr_age*sex`)) %>%
-  pivot_longer(cols = c(beta_age, beta_sexM, `beta_age*sex`,  fdr_age, fdr_sexM, `fdr_age*sex`),
+  dplyr::select(c(beta_age, beta_sexM, fdr_age, fdr_sexM)) %>%
+  pivot_longer(cols = c(beta_age, beta_sexM, fdr_age, fdr_sexM),
                names_to = c(".value", "var"),
                names_sep = "_") %>%
   filter(fdr <.05) %>%
   ggplot(aes(beta, fill=var)) +
   geom_histogram(alpha = 0.7, bins = 100, position = "identity") +
-  #geom_density(alpha = 0.5) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "red") +
   ylab("Count") +
   xlab("Estimate") +
-  theme_classic(base_size=24)
+  theme_classic(base_size=18) + 
+  scale_x_continuous(breaks = seq(-1, 1, 0.5), limits = c(-1,1))
 
 additive_df %>%
-  ggplot(aes(`beta_age*sex`)) +
+  ggplot(aes(pvalue_age)) +
   geom_histogram(bins=50)
 
 additive_df %>%
-  ggplot(aes(beta_age)) +
-  geom_histogram(bins=50)
-
-additive_df %>%
-  ggplot(aes(beta_sexM)) +
+  ggplot(aes(pvalue_sexM)) +
   geom_histogram(bins=50)
 
 additive_df %>% 
@@ -255,8 +311,19 @@ additive_df %>%
         panel.grid.minor = element_line(color = "grey98", linewidth = 0.5)) +
   stat_cor()
 
+additive_df %>% 
+  #filter(chr != "X") %>%
+  filter(fdr_age < .05 & fdr_sexM < .05) %>% nrow()
+
 #Counts and Beta Distributions
 additive_counts<- count_signif_regions(additive_df)
+additive_counts[["plot"]]
+
+additive_df %>%
+  group_by(chr) %>%
+  summarise(sum = sum(fdr_age < .05)) %>%
+  ggplot(aes(sum, chr, fill = chr)) +
+  geom_bar(stat = "identity")
 
 ######################################
 ###        Add Annotations         ###
